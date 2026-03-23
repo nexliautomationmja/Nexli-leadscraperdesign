@@ -597,15 +597,26 @@ const Navbar = ({
         </div>
 
         <div className="hidden md:flex items-center gap-1">
-          <span
-            className="px-3 py-1 rounded-full text-xs font-semibold"
+          <div
+            className="relative px-6 py-2.5 rounded-full font-bold text-sm tracking-wide flex items-center gap-2.5 overflow-hidden"
             style={{
-              background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(6, 182, 212, 0.1))',
-              color: '#2563EB',
+              background: isDark ? 'rgba(11, 17, 33, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+              border: '2px solid transparent',
+              backgroundImage: 'linear-gradient(rgba(11, 17, 33, 0.6), rgba(11, 17, 33, 0.6)), linear-gradient(135deg, #06B6D4, #2563EB)',
+              backgroundOrigin: 'border-box',
+              backgroundClip: 'padding-box, border-box',
             }}
           >
-            Lead Scraper
-          </span>
+            <Search className="w-4 h-4" style={{ color: '#06B6D4' }} />
+            <span style={{
+              background: 'linear-gradient(135deg, #06B6D4, #2563EB)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}>
+              LEAD SCRAPER
+            </span>
+          </div>
         </div>
       </div>
 
