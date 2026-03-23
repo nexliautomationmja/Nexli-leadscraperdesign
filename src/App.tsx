@@ -11,6 +11,7 @@ import {
   Globe,
   Plus,
   ChevronRight,
+  ChevronLeft,
   ExternalLink,
   Sun,
   Moon,
@@ -36,6 +37,9 @@ import {
   BarChart3,
   RefreshCw,
   AlertCircle,
+  Trash2,
+  Clock,
+  Edit,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -74,6 +78,7 @@ interface Lead {
   seniority?: string;
   functional?: string;
   score: number;
+  tags?: string[];
   generatedEmail?: { subject: string; body: string };
   emailSendStatus?: 'draft' | 'sent' | 'failed';
 }
@@ -82,7 +87,7 @@ interface Campaign {
   id: string;
   name: string;
   createdAt: string;
-  status: 'draft' | 'active' | 'paused' | 'completed';
+  status: 'draft' | 'active' | 'paused' | 'completed' | 'scheduled';
   leadIds: string[];
   emailTemplate?: { subject: string; body: string };
   senderName: string;
@@ -99,6 +104,17 @@ interface Campaign {
   schedule?: {
     startDate: string;
     dailyLimit: number;
+  };
+  followUpSequence?: FollowUpSequence;
+  abTest?: {
+    variantA: { subject: string; recipientCount: number; opens: number };
+    variantB: { subject: string; recipientCount: number; opens: number };
+    testSize: number;
+    winner?: 'A' | 'B';
+  };
+  scheduledSend?: {
+    scheduledFor: string;
+    timezone: string;
   };
 }
 
@@ -124,6 +140,37 @@ interface Notification {
   read: boolean;
   icon?: 'lead' | 'email' | 'campaign' | 'reply' | 'error';
 }
+
+interface EmailTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  subject: string;
+  body: string;
+  variables: string[];
+  createdAt: string;
+  usageCount: number;
+}
+
+interface FollowUpSequence {
+  steps: Array<{
+    delayDays: number;
+    condition: 'no_reply' | 'no_open' | 'always';
+    subject: string;
+    body: string;
+  }>;
+}
+
+// --- Constants ---
+const LEAD_TAGS = [
+  { id: 'hot', label: 'Hot', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.12)' },
+  { id: 'warm', label: 'Warm', color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.12)' },
+  { id: 'cold', label: 'Cold', color: '#6B7280', bg: 'rgba(107, 114, 128, 0.12)' },
+  { id: 'follow-up', label: 'Follow-up', color: '#8B5CF6', bg: 'rgba(139, 92, 246, 0.12)' },
+  { id: 'replied', label: 'Replied', color: '#10B981', bg: 'rgba(16, 185, 129, 0.12)' },
+  { id: 'closed-won', label: 'Closed Won', color: '#059669', bg: 'rgba(5, 150, 105, 0.12)' },
+  { id: 'not-interested', label: 'Not Interested', color: '#DC2626', bg: 'rgba(220, 38, 38, 0.12)' },
+];
 
 // --- Lead Scoring ---
 function calculateLeadScore(lead: {
@@ -171,6 +218,84 @@ function exportLeadsToCSV(leads: Lead[]) {
   a.download = `nexli-leads-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// Fill email template with lead data
+function fillTemplate(template: EmailTemplate, lead: Lead): { subject: string; body: string } {
+  const variables: Record<string, string> = {
+    '{{firstName}}': lead.name.split(' ')[0] || lead.name,
+    '{{lastName}}': lead.name.split(' ').slice(1).join(' ') || '',
+    '{{fullName}}': lead.name,
+    '{{company}}': lead.company,
+    '{{role}}': lead.role,
+    '{{email}}': lead.email,
+    '{{city}}': lead.city || '',
+    '{{state}}': lead.state || '',
+    '{{country}}': lead.country || '',
+    '{{phone}}': lead.phone || '',
+  };
+
+  let subject = template.subject;
+  let body = template.body;
+
+  Object.entries(variables).forEach(([key, value]) => {
+    const regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    subject = subject.replace(regex, value);
+    body = body.replace(regex, value);
+  });
+
+  return { subject, body };
+}
+
+// Parse CSV and convert to leads
+function parseCSVToLeads(csvText: string): Lead[] {
+  const lines = csvText.trim().split('\n');
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
+  const leads: Lead[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].match(/(".*?"|[^,]+)(?=\s*,|\s*$)/g)?.map(v => v.trim().replace(/^"|"$/g, '')) || [];
+
+    const getColumn = (names: string[]): string => {
+      for (const name of names) {
+        const index = headers.findIndex(h => h.includes(name));
+        if (index !== -1 && values[index]) return values[index];
+      }
+      return '';
+    };
+
+    const name = getColumn(['name', 'full name', 'fullname']);
+    const email = getColumn(['email', 'email address']);
+
+    if (!name || !email) continue;
+
+    const lead: Lead = {
+      id: `lead-${Date.now()}-${i}`,
+      name,
+      email,
+      company: getColumn(['company', 'company name', 'organization']),
+      role: getColumn(['role', 'title', 'job title', 'position']),
+      status: 'pending',
+      linkedin: getColumn(['linkedin', 'linkedin url', 'linkedin profile']),
+      phone: getColumn(['phone', 'phone number', 'mobile']),
+      city: getColumn(['city', 'location']),
+      state: getColumn(['state', 'province']),
+      country: getColumn(['country']),
+      orgWebsite: getColumn(['website', 'company website', 'org website']),
+      orgSize: getColumn(['company size', 'org size', 'size']),
+      orgIndustry: getColumn(['industry', 'sector']),
+      seniority: getColumn(['seniority', 'level']),
+      functional: getColumn(['function', 'department']),
+      score: 0,
+    };
+
+    lead.score = calculateLeadScore(lead);
+    leads.push(lead);
+  }
+
+  return leads;
 }
 
 // Map Apify output to our Lead format
@@ -2236,6 +2361,51 @@ export default function App() {
   const [emailErrorForLead, setEmailErrorForLead] = useState('');
   const [isSendingEmailForLead, setIsSendingEmailForLead] = useState(false);
 
+  // Feature states (8 advanced features)
+  const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>(() => {
+    const stored = localStorage.getItem('nexli-email-templates');
+    return stored ? JSON.parse(stored) : [
+      {
+        id: 'template-1',
+        name: 'Tax Season Outreach',
+        description: 'General tax season outreach template',
+        subject: 'Quick question about {{company}}\'s tax prep',
+        body: 'Hi {{firstName}},\n\nI noticed {{company}} and wanted to reach out. As tax season approaches, many {{role}}s are looking for ways to streamline their accounting processes.\n\nWould you be open to a quick 15-minute call to discuss how we can help?\n\nBest,\nYour Name',
+        variables: ['{{firstName}}', '{{company}}', '{{role}}'],
+        createdAt: new Date().toISOString(),
+        usageCount: 0,
+      },
+      {
+        id: 'template-2',
+        name: 'LinkedIn Connection Follow-up',
+        description: 'Follow up after LinkedIn connection',
+        subject: 'Great connecting with you, {{firstName}}',
+        body: 'Hi {{firstName}},\n\nThanks for connecting! I see you\'re a {{role}} at {{company}}.\n\nI help businesses like yours optimize their financial operations. Would love to learn more about your current setup and see if we can add value.\n\nAre you available for a brief call this week?\n\nCheers,\nYour Name',
+        variables: ['{{firstName}}', '{{company}}', '{{role}}'],
+        createdAt: new Date().toISOString(),
+        usageCount: 0,
+      },
+      {
+        id: 'template-3',
+        name: 'Cold Outreach - Value Prop',
+        description: 'Direct value proposition cold email',
+        subject: 'Helping {{company}} save time on accounting',
+        body: 'Hi {{firstName}},\n\nI noticed {{company}} is in {{city}}, {{state}}. We\'ve helped similar businesses in your area reduce their accounting workload by 40%.\n\nInterested in learning how we can help {{company}}?\n\nLet me know if you\'d like to see a quick demo.\n\nBest regards,\nYour Name',
+        variables: ['{{firstName}}', '{{company}}', '{{city}}', '{{state}}'],
+        createdAt: new Date().toISOString(),
+        usageCount: 0,
+      },
+    ];
+  });
+
+  const [scheduledCampaigns, setScheduledCampaigns] = useState<string[]>(() => {
+    const stored = localStorage.getItem('nexli-scheduled-campaigns');
+    return stored ? JSON.parse(stored) : [];
+  });
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
     localStorage.setItem('nexli-theme', isDark ? 'dark' : 'light');
@@ -2255,6 +2425,72 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('nexli-notifications', JSON.stringify(notifications));
   }, [notifications]);
+
+  // Persist email templates to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexli-email-templates', JSON.stringify(emailTemplates));
+  }, [emailTemplates]);
+
+  // Persist scheduled campaigns to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexli-scheduled-campaigns', JSON.stringify(scheduledCampaigns));
+  }, [scheduledCampaigns]);
+
+  // Scheduled campaign scheduler - runs every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+
+      campaigns.forEach((campaign) => {
+        if (
+          campaign.status === 'scheduled' &&
+          campaign.scheduledSend?.scheduledFor
+        ) {
+          const scheduledTime = new Date(campaign.scheduledSend.scheduledFor);
+
+          // Check if it's time to send
+          if (now >= scheduledTime) {
+            // Update campaign status to active
+            setCampaigns((prev) =>
+              prev.map((c) =>
+                c.id === campaign.id
+                  ? { ...c, status: 'active' as const }
+                  : c
+              )
+            );
+
+            // Remove from scheduled campaigns
+            setScheduledCampaigns((prev) => prev.filter((id) => id !== campaign.id));
+
+            // Send notification
+            addNotification(
+              'success',
+              'Campaign Sent',
+              `"${campaign.name}" was sent as scheduled`,
+              'campaign'
+            );
+          }
+        }
+      });
+    }, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [campaigns]);
+
+  // Follow-up scheduler - runs every minute (simplified version)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // In a real implementation, this would:
+      // 1. Check email logs for campaigns with follow-up sequences
+      // 2. Determine if conditions are met (no reply, no open, etc.)
+      // 3. Send follow-up emails
+      // 4. Update email logs
+
+      // For now, this is a placeholder for the scheduler logic
+    }, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [emailLogs, campaigns]);
 
   // Notification helper functions
   const addNotification = (
@@ -2360,6 +2596,70 @@ export default function App() {
     setEmailErrorForLead('');
   };
 
+  // Bulk action handlers
+  const handleToggleSelectLead = (leadId: string) => {
+    setSelectedLeads((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(leadId)) {
+        newSet.delete(leadId);
+      } else {
+        newSet.add(leadId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedLeads.size === allLeads.length) {
+      setSelectedLeads(new Set());
+    } else {
+      setSelectedLeads(new Set(allLeads.map((l) => l.id)));
+    }
+  };
+
+  const handleBulkExport = () => {
+    const leadsToExport = allLeads.filter((l) => selectedLeads.has(l.id));
+    exportLeadsToCSV(leadsToExport);
+    addNotification('success', 'Leads Exported', `Exported ${leadsToExport.length} leads to CSV`, 'lead');
+  };
+
+  const handleBulkDelete = () => {
+    if (!confirm(`Delete ${selectedLeads.size} selected leads?`)) return;
+    setAllLeads((prev) => prev.filter((l) => !selectedLeads.has(l.id)));
+    addNotification('success', 'Leads Deleted', `Deleted ${selectedLeads.size} leads`, 'lead');
+    setSelectedLeads(new Set());
+  };
+
+  const handleBulkAddTag = (tagId: string) => {
+    setAllLeads((prev) =>
+      prev.map((l) =>
+        selectedLeads.has(l.id)
+          ? { ...l, tags: [...new Set([...(l.tags || []), tagId])] }
+          : l
+      )
+    );
+    addNotification('success', 'Tags Added', `Added tag to ${selectedLeads.size} leads`, 'lead');
+  };
+
+  const handleCSVUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      const leads = parseCSVToLeads(text);
+      if (leads.length > 0) {
+        setAllLeads((prev) => [...leads, ...prev]);
+        addNotification('success', 'CSV Imported', `Imported ${leads.length} leads`, 'lead');
+      } else {
+        addNotification('error', 'Import Failed', 'No valid leads found in CSV', 'error');
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
   return (
     <div
       className="min-h-screen transition-colors duration-300"
@@ -2414,14 +2714,171 @@ export default function App() {
                         Manage and export your collected leads.
                       </p>
                     </div>
-                    <button
-                      onClick={() => exportLeadsToCSV(allLeads)}
-                      className="nexli-btn-gradient px-6 py-2.5 rounded-full font-bold flex items-center gap-2 shadow-lg"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Export CSV</span>
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={handleCSVUpload}
+                        className="hidden"
+                        id="csv-upload"
+                      />
+                      <label
+                        htmlFor="csv-upload"
+                        className="px-6 py-2.5 rounded-full font-bold flex items-center gap-2 cursor-pointer transition-all"
+                        style={{
+                          background: 'var(--bg-elevated)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--border-color)',
+                        }}
+                      >
+                        <Upload className="w-4 h-4" />
+                        <span>Import CSV</span>
+                      </label>
+                      <button
+                        onClick={() => exportLeadsToCSV(allLeads)}
+                        className="nexli-btn-gradient px-6 py-2.5 rounded-full font-bold flex items-center gap-2 shadow-lg"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>Export All</span>
+                      </button>
+                    </div>
                   </header>
+
+                  {/* Bulk Action Toolbar */}
+                  {selectedLeads.size > 0 && (
+                    <div
+                      className="glass-card rounded-2xl p-4 flex items-center justify-between"
+                      style={{ borderColor: 'var(--gradient-start)' }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-10 h-10 rounded-full nexli-gradient-bg flex items-center justify-center text-white font-bold"
+                        >
+                          {selectedLeads.size}
+                        </div>
+                        <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
+                          {selectedLeads.size} lead{selectedLeads.size > 1 ? 's' : ''} selected
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="relative group">
+                          <button
+                            className="px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+                            style={{
+                              background: 'var(--bg-elevated)',
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            <Plus className="w-4 h-4" />
+                            Add Tag
+                          </button>
+                          <div
+                            className="absolute top-full right-0 mt-2 glass-card rounded-xl p-2 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[180px]"
+                          >
+                            {LEAD_TAGS.map((tag) => (
+                              <button
+                                key={tag.id}
+                                onClick={() => handleBulkAddTag(tag.id)}
+                                className="w-full px-3 py-2 rounded-lg text-left text-sm font-bold transition-all flex items-center gap-2"
+                                style={{
+                                  color: tag.color,
+                                }}
+                                onMouseEnter={(e) =>
+                                  (e.currentTarget.style.background = tag.bg)
+                                }
+                                onMouseLeave={(e) =>
+                                  (e.currentTarget.style.background = 'transparent')
+                                }
+                              >
+                                <div
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ background: tag.color }}
+                                />
+                                {tag.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <button
+                          onClick={handleBulkExport}
+                          className="px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+                          style={{
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          <Download className="w-4 h-4" />
+                          Export
+                        </button>
+                        <button
+                          onClick={handleBulkDelete}
+                          className="px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+                          style={{
+                            background: 'var(--status-failed-bg)',
+                            color: 'var(--status-failed-text)',
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setSelectedLeads(new Set())}
+                          className="px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+                          style={{
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-muted)',
+                          }}
+                        >
+                          <X className="w-4 h-4" />
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tag Filters */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold" style={{ color: 'var(--text-muted)' }}>
+                      Filter:
+                    </span>
+                    <button
+                      onClick={() => setActiveTagFilter(null)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        activeTagFilter === null ? 'nexli-gradient-bg text-white' : ''
+                      }`}
+                      style={
+                        activeTagFilter === null
+                          ? {}
+                          : {
+                              background: 'var(--bg-elevated)',
+                              color: 'var(--text-muted)',
+                            }
+                      }
+                    >
+                      All ({allLeads.length})
+                    </button>
+                    {LEAD_TAGS.map((tag) => {
+                      const count = allLeads.filter((l) => l.tags?.includes(tag.id)).length;
+                      return (
+                        <button
+                          key={tag.id}
+                          onClick={() => setActiveTagFilter(tag.id)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                          style={{
+                            background: activeTagFilter === tag.id ? tag.bg : 'var(--bg-elevated)',
+                            color: activeTagFilter === tag.id ? tag.color : 'var(--text-muted)',
+                            border: activeTagFilter === tag.id ? `1px solid ${tag.color}` : 'none',
+                          }}
+                        >
+                          <div
+                            className="w-2 h-2 rounded-full"
+                            style={{ background: tag.color }}
+                          />
+                          {tag.label} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
 
                   {allLeads.length > 0 ? (
                     <div className="glass-card rounded-2xl overflow-hidden">
@@ -2434,6 +2891,15 @@ export default function App() {
                               color: 'var(--text-muted)',
                             }}
                           >
+                            <th className="px-5 py-3.5 w-12">
+                              <input
+                                type="checkbox"
+                                checked={selectedLeads.size === allLeads.length && allLeads.length > 0}
+                                onChange={handleToggleSelectAll}
+                                className="w-4 h-4 rounded cursor-pointer"
+                                style={{ accentColor: 'var(--gradient-start)' }}
+                              />
+                            </th>
                             <th className="px-5 py-3.5">Lead</th>
                             <th className="px-5 py-3.5">Role</th>
                             <th className="px-5 py-3.5">Company</th>
@@ -2442,7 +2908,9 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {allLeads.map((lead, idx) => (
+                          {allLeads
+                            .filter((lead) => !activeTagFilter || lead.tags?.includes(activeTagFilter))
+                            .map((lead, idx) => (
                             <tr
                               key={lead.id}
                               className="group transition-colors"
@@ -2459,6 +2927,15 @@ export default function App() {
                                 (e.currentTarget.style.background = 'transparent')
                               }
                             >
+                              <td className="px-5 py-4">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedLeads.has(lead.id)}
+                                  onChange={() => handleToggleSelectLead(lead.id)}
+                                  className="w-4 h-4 rounded cursor-pointer"
+                                  style={{ accentColor: 'var(--gradient-start)' }}
+                                />
+                              </td>
                               <td className="px-5 py-4">
                                 <div className="flex items-center gap-3">
                                   <div
@@ -2489,11 +2966,36 @@ export default function App() {
                               >
                                 {lead.role}
                               </td>
-                              <td
-                                className="px-5 py-4 text-sm"
-                                style={{ color: 'var(--text-secondary)' }}
-                              >
-                                {lead.company}
+                              <td className="px-5 py-4">
+                                <div className="flex flex-col gap-2">
+                                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                    {lead.company}
+                                  </span>
+                                  {lead.tags && lead.tags.length > 0 && (
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {lead.tags.map((tagId) => {
+                                        const tag = LEAD_TAGS.find((t) => t.id === tagId);
+                                        if (!tag) return null;
+                                        return (
+                                          <span
+                                            key={tagId}
+                                            className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider flex items-center gap-1"
+                                            style={{
+                                              background: tag.bg,
+                                              color: tag.color,
+                                            }}
+                                          >
+                                            <div
+                                              className="w-1.5 h-1.5 rounded-full"
+                                              style={{ background: tag.color }}
+                                            />
+                                            {tag.label}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
                               </td>
                               <td className="px-5 py-4">
                                 <span
@@ -2713,6 +3215,128 @@ export default function App() {
                             }}
                           />
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Email Templates */}
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3
+                          className="text-sm font-bold uppercase tracking-wider"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          Email Templates
+                        </h3>
+                        <button
+                          onClick={() => {
+                            const name = prompt('Template name:');
+                            if (!name) return;
+                            const subject = prompt('Email subject:');
+                            if (!subject) return;
+                            const body = prompt('Email body (use {{firstName}}, {{company}}, {{role}} for variables):');
+                            if (!body) return;
+
+                            const variables: string[] = [];
+                            const varPattern = /\{\{(\w+)\}\}/g;
+                            let match;
+                            while ((match = varPattern.exec(subject + body)) !== null) {
+                              if (!variables.includes(`{{${match[1]}}}`)) {
+                                variables.push(`{{${match[1]}}}`);
+                              }
+                            }
+
+                            const newTemplate: EmailTemplate = {
+                              id: `template-${Date.now()}`,
+                              name,
+                              subject,
+                              body,
+                              variables,
+                              createdAt: new Date().toISOString(),
+                              usageCount: 0,
+                            };
+                            setEmailTemplates((prev) => [...prev, newTemplate]);
+                            addNotification('success', 'Template Created', `"${name}" template created`, 'email');
+                          }}
+                          className="px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-2 nexli-gradient-bg text-white"
+                        >
+                          <Plus className="w-3 h-3" />
+                          New Template
+                        </button>
+                      </div>
+                      <div className="space-y-3">
+                        {emailTemplates.map((template) => (
+                          <div
+                            key={template.id}
+                            className="p-4 rounded-xl transition-colors"
+                            style={{ background: 'var(--bg-elevated)' }}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
+                                    {template.name}
+                                  </p>
+                                  <span
+                                    className="px-2 py-0.5 rounded-full text-[9px] font-bold"
+                                    style={{
+                                      background: 'var(--status-verified-bg)',
+                                      color: 'var(--status-verified-text)',
+                                    }}
+                                  >
+                                    Used {template.usageCount}x
+                                  </span>
+                                </div>
+                                <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+                                  {template.subject}
+                                </p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {template.variables.map((v) => (
+                                    <span
+                                      key={v}
+                                      className="px-2 py-0.5 rounded text-[9px] font-mono"
+                                      style={{
+                                        background: 'var(--bg-input)',
+                                        color: 'var(--text-secondary)',
+                                      }}
+                                    >
+                                      {v}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Delete "${template.name}" template?`)) {
+                                    setEmailTemplates((prev) =>
+                                      prev.filter((t) => t.id !== template.id)
+                                    );
+                                    addNotification('success', 'Template Deleted', `"${template.name}" deleted`, 'email');
+                                  }
+                                }}
+                                className="p-2 rounded-lg transition-all"
+                                style={{ color: 'var(--status-failed-text)' }}
+                                onMouseEnter={(e) =>
+                                  (e.currentTarget.style.background = 'var(--status-failed-bg)')
+                                }
+                                onMouseLeave={(e) =>
+                                  (e.currentTarget.style.background = 'transparent')
+                                }
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        {emailTemplates.length === 0 && (
+                          <div
+                            className="p-8 rounded-xl text-center"
+                            style={{ background: 'var(--bg-elevated)' }}
+                          >
+                            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                              No templates yet. Create your first template to get started.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
 
