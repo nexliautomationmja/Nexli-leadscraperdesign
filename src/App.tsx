@@ -1593,6 +1593,41 @@ function CampaignsView({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  // Refresh campaign metrics from Instantly.ai API
+  const refreshAllMetrics = async () => {
+    if (campaigns.length === 0) return;
+
+    setIsRefreshing(true);
+    try {
+      // Refresh metrics for each campaign
+      const updates = await Promise.all(
+        campaigns.map(async (campaign) => {
+          try {
+            const response = await fetch(`/api/instantly-metrics?campaignId=${campaign.id}`);
+            if (!response.ok) {
+              console.error(`Failed to fetch metrics for campaign ${campaign.id}`);
+              return campaign; // Return unchanged if fetch fails
+            }
+            const metrics = await response.json();
+            return { ...campaign, metrics };
+          } catch (error) {
+            console.error(`Error fetching metrics for campaign ${campaign.id}:`, error);
+            return campaign; // Return unchanged if error
+          }
+        })
+      );
+
+      setCampaigns(updates);
+      setLastRefreshed(new Date());
+    } catch (error) {
+      console.error('Failed to refresh metrics:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Calculate total metrics across all campaigns
   const totalMetrics = campaigns.reduce(
@@ -1614,22 +1649,41 @@ function CampaignsView({
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
             <Mail className="w-7 h-7 md:w-8 md:h-8 text-blue-500" />
             Email Campaigns
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
             Manage bulk email outreach and track Justine's progress
+            {lastRefreshed && (
+              <span className="ml-2 text-xs">
+                • Last updated {lastRefreshed.toLocaleTimeString()}
+              </span>
+            )}
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="nexli-btn-gradient px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center"
-        >
-          <Plus className="w-4 h-4" />
-          New Campaign
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={refreshAllMetrics}
+            disabled={isRefreshing || campaigns.length === 0}
+            className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md"
+            style={{
+              borderColor: 'var(--border-color)',
+              background: 'var(--bg-surface)',
+            }}
+          >
+            <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Metrics'}
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="nexli-btn-gradient px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center"
+          >
+            <Plus className="w-4 h-4" />
+            New Campaign
+          </button>
+        </div>
       </div>
 
       {/* Overview Stats - Justine's Dashboard */}
@@ -1803,9 +1857,14 @@ function CampaignsView({
       <div className="glass-card p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg md:text-xl font-bold">Recent Activity</h2>
-          <button className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
-            <RefreshCw className="w-3 h-3" />
-            Refresh
+          <button
+            onClick={refreshAllMetrics}
+            disabled={isRefreshing || campaigns.length === 0}
+            className="text-xs font-medium flex items-center gap-1 hover:opacity-100 transition-opacity disabled:opacity-30"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <RefreshCw className={cn('w-3 h-3', isRefreshing && 'animate-spin')} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
         {emailLogs.length === 0 ? (
