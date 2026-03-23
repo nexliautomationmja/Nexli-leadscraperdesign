@@ -597,37 +597,34 @@ const Navbar = ({
         </div>
 
         <div className="hidden md:flex items-center gap-1">
-          <div
-            className="relative px-4 py-2 rounded-full font-medium text-sm tracking-tight flex items-center gap-2 overflow-hidden"
-            style={{
-              background: isDark ? 'rgba(11, 17, 33, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-              border: '2px solid transparent',
-              backgroundImage: isDark
-                ? 'linear-gradient(rgba(11, 17, 33, 0.6), rgba(11, 17, 33, 0.6)), linear-gradient(135deg, #2563EB, #06B6D4)'
-                : 'linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)), linear-gradient(135deg, #2563EB, #06B6D4)',
-              backgroundOrigin: 'border-box',
-              backgroundClip: 'padding-box, border-box',
-            }}
-          >
-            {/* Shimmer Effect */}
-            <div
-              className="absolute blur-md opacity-40"
-              style={{
-                inset: '-100%',
-                background: 'linear-gradient(135deg, transparent 30%, #2563EB 50%, #06B6D4 70%, transparent 100%)',
-                animation: 'shimmer 8s linear infinite',
-              }}
-            />
-
-            <Search className="w-4 h-4 relative z-10" style={{ color: '#2563EB' }} />
-            <span className="relative z-10 whitespace-nowrap" style={{
+          <div className="relative p-[2px] rounded-full overflow-hidden">
+            {/* Gradient Border */}
+            <div className="absolute inset-0 rounded-full" style={{
               background: 'linear-gradient(135deg, #2563EB, #06B6D4)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}>
-              LEAD SCRAPER
-            </span>
+            }} />
+
+            {/* Inner Button */}
+            <div
+              className="relative px-5 py-2.5 rounded-full font-bold text-sm tracking-wide flex items-center gap-2.5 overflow-hidden text-white"
+              style={{
+                background: 'rgba(11, 17, 33, 0.9)',
+              }}
+            >
+              {/* Shimmer Effect */}
+              <div
+                className="absolute blur-md opacity-40"
+                style={{
+                  inset: '-100%',
+                  background: 'linear-gradient(90deg, transparent 0%, rgba(37, 99, 235, 0.9) 50%, rgba(6, 182, 212, 0.9) 100%, transparent 100%)',
+                  animation: 'shimmer 8s linear infinite',
+                }}
+              />
+
+              <Search className="w-4 h-4 relative z-10 text-white" />
+              <span className="relative z-10 whitespace-nowrap">
+                LEAD SCRAPER
+              </span>
+            </div>
           </div>
         </div>
       </div>
