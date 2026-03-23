@@ -901,6 +901,11 @@ const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: b
   const coldLeads = recentLeads.filter((l) => l.score < 30).length;
   const totalLeads = recentLeads.length;
 
+  // Calculate real analytics
+  const verifiedEmails = recentLeads.filter((l) => l.email && l.email.length > 0).length;
+  const linkedinProfiles = recentLeads.filter((l) => l.linkedin && l.linkedin.length > 0).length;
+  const successRate = totalLeads > 0 ? ((verifiedEmails / totalLeads) * 100).toFixed(1) : '0.0';
+
   return (
     <div className="space-y-8">
       <header>
@@ -916,10 +921,27 @@ const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: b
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-        <StatCard title="Total Leads" value="12,482" icon={Users} trend={12} gradientIcon />
-        <StatCard title="Verified Emails" value="8,921" icon={Mail} trend={8} />
-        <StatCard title="LinkedIn Profiles" value="4,201" icon={Linkedin} trend={15} />
-        <StatCard title="Success Rate" value="94.2%" icon={Target} trend={2} />
+        <StatCard
+          title="Total Leads"
+          value={totalLeads.toLocaleString()}
+          icon={Users}
+          gradientIcon
+        />
+        <StatCard
+          title="Verified Emails"
+          value={verifiedEmails.toLocaleString()}
+          icon={Mail}
+        />
+        <StatCard
+          title="LinkedIn Profiles"
+          value={linkedinProfiles.toLocaleString()}
+          icon={Linkedin}
+        />
+        <StatCard
+          title="Success Rate"
+          value={`${successRate}%`}
+          icon={Target}
+        />
       </div>
 
       {/* Lead Quality Breakdown */}
@@ -1029,7 +1051,18 @@ const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: b
               <option>Last 30 days</option>
             </select>
           </div>
-          <div className="h-[300px] w-full">
+          <div className="h-[300px] w-full flex items-center justify-center">
+            {totalLeads === 0 ? (
+              <div className="text-center">
+                <Search className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                <p className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                  No data yet
+                </p>
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  Start scraping leads to see your performance analytics
+                </p>
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={MOCK_DATA}>
                 <defs>
@@ -1087,7 +1120,9 @@ const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: b
                 />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </div>
+          {totalLeads > 0 && (
           <div className="flex items-center gap-6 mt-4 pt-4" style={{ borderTop: `1px solid var(--border-subtle)` }}>
             <div className="flex items-center gap-2 text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
               <div className="w-3 h-0.5 rounded-full bg-nexli-blue"></div>
@@ -1098,6 +1133,7 @@ const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: b
               Verified
             </div>
           </div>
+          )}
         </div>
 
         {/* Recent Activity */}
