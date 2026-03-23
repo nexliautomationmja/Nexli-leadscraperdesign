@@ -35,6 +35,7 @@ import {
   Pause,
   BarChart3,
   RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -112,6 +113,16 @@ interface EmailLog {
   subject: string;
   body?: string;
   errorMessage?: string;
+}
+
+interface Notification {
+  id: string;
+  type: 'success' | 'info' | 'warning' | 'error';
+  title: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+  icon?: 'lead' | 'email' | 'campaign' | 'reply' | 'error';
 }
 
 // --- Lead Scoring ---
@@ -419,17 +430,151 @@ const ThemeToggle = ({ isDark, onToggle }: { isDark: boolean; onToggle: () => vo
 );
 
 // --- Components ---
+const NotificationPanel = ({
+  notifications,
+  onMarkAsRead,
+  onClearAll,
+  isDark,
+}: {
+  notifications: Notification[];
+  onMarkAsRead: (id: string) => void;
+  onClearAll: () => void;
+  isDark: boolean;
+}) => {
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const getIcon = (iconType?: string) => {
+    switch (iconType) {
+      case 'lead':
+        return <Users className="w-4 h-4" />;
+      case 'email':
+        return <Mail className="w-4 h-4" />;
+      case 'campaign':
+        return <Send className="w-4 h-4" />;
+      case 'reply':
+        return <Reply className="w-4 h-4" />;
+      case 'error':
+        return <AlertCircle className="w-4 h-4" />;
+      default:
+        return <Bell className="w-4 h-4" />;
+    }
+  };
+
+  const getIconColor = (type: string) => {
+    switch (type) {
+      case 'success':
+        return 'text-green-500 bg-green-500/10';
+      case 'info':
+        return 'text-blue-500 bg-blue-500/10';
+      case 'warning':
+        return 'text-yellow-500 bg-yellow-500/10';
+      case 'error':
+        return 'text-red-500 bg-red-500/10';
+      default:
+        return 'text-gray-500 bg-gray-500/10';
+    }
+  };
+
+  return (
+    <div
+      className="absolute top-full right-0 mt-2 w-80 md:w-96 rounded-2xl shadow-2xl border overflow-hidden z-50"
+      style={{
+        background: 'var(--bg-surface)',
+        borderColor: 'var(--border-color)',
+      }}
+    >
+      {/* Header */}
+      <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
+        <div>
+          <h3 className="font-bold text-lg">Notifications</h3>
+          {unreadCount > 0 && (
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              {unreadCount} unread
+            </p>
+          )}
+        </div>
+        {notifications.length > 0 && (
+          <button
+            onClick={onClearAll}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            Clear All
+          </button>
+        )}
+      </div>
+
+      {/* Notifications List */}
+      <div className="max-h-[400px] overflow-y-auto">
+        {notifications.length === 0 ? (
+          <div className="text-center py-12">
+            <Bell className="w-12 h-12 mx-auto mb-3 opacity-20" />
+            <p className="text-sm font-medium mb-1">No notifications</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              You're all caught up!
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y" style={{ borderColor: 'var(--border-color)' }}>
+            {notifications.map((notification) => (
+              <div
+                key={notification.id}
+                onClick={() => !notification.read && onMarkAsRead(notification.id)}
+                className={cn(
+                  'p-4 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800/50',
+                  !notification.read && 'bg-blue-50/50 dark:bg-blue-900/10'
+                )}
+              >
+                <div className="flex gap-3">
+                  <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0', getIconColor(notification.type))}>
+                    {getIcon(notification.icon)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-sm">{notification.title}</p>
+                      {!notification.read && (
+                        <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 mt-1"></div>
+                      )}
+                    </div>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                      {notification.message}
+                    </p>
+                    <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
+                      {new Date(notification.timestamp).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const Navbar = ({
   isDark,
   onToggleTheme,
   sidebarOpen,
   setSidebarOpen,
+  notifications,
+  onMarkAsRead,
+  onClearAll,
 }: {
   isDark: boolean;
   onToggleTheme: () => void;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  notifications: Notification[];
+  onMarkAsRead: (id: string) => void;
+  onClearAll: () => void;
 }) => {
+  const [showNotifications, setShowNotifications] = useState(false);
+  const unreadCount = notifications.filter((n) => !n.read).length;
   return (
     <nav
       className="fixed top-0 left-0 right-0 z-50 h-16 flex items-center px-4 md:px-6 justify-between backdrop-blur-xl transition-colors duration-300"
@@ -467,21 +612,35 @@ const Navbar = ({
       <div className="flex items-center gap-3">
         <ThemeToggle isDark={isDark} onToggle={onToggleTheme} />
 
-        <button
-          className="p-2 rounded-xl transition-all duration-200 relative"
-          style={{ color: 'var(--text-muted)' }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-        >
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-nexli-blue" style={{ boxShadow: '0 0 0 2px var(--bg-primary)' }}></span>
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setShowNotifications(!showNotifications)}
+            className="p-2 rounded-xl transition-all duration-200 relative hover:bg-gray-100 dark:hover:bg-gray-800"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <Bell className="w-5 h-5" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center" style={{ boxShadow: '0 0 0 2px var(--bg-primary)' }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
 
-        <div className="h-8 w-px mx-1" style={{ background: 'var(--border-color)' }}></div>
-
-        <button className="nexli-btn-gradient px-5 py-2 rounded-full text-sm font-bold shadow-lg">
-          <span>Book a Session</span>
-        </button>
+          {showNotifications && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowNotifications(false)}
+              />
+              <NotificationPanel
+                notifications={notifications}
+                onMarkAsRead={onMarkAsRead}
+                onClearAll={onClearAll}
+                isDark={isDark}
+              />
+            </>
+          )}
+        </div>
       </div>
     </nav>
   );
@@ -493,12 +652,16 @@ const Sidebar = ({
   isDark,
   sidebarOpen,
   setSidebarOpen,
+  allLeads,
+  campaigns,
 }: {
   activeTab: string;
   setActiveTab: (t: string) => void;
   isDark: boolean;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  allLeads: Lead[];
+  campaigns: Campaign[];
 }) => {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -570,36 +733,81 @@ const Sidebar = ({
         })}
       </div>
 
-      {/* Plan Usage Card */}
+      {/* Productivity Tracker */}
       <div
         className="p-4 rounded-2xl nexli-gradient-border transition-colors duration-300"
         style={{
           background: 'var(--bg-elevated)',
         }}
       >
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-center gap-3 mb-4">
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center nexli-gradient-bg"
           >
-            <Shield className="w-5 h-5 text-white" />
+            <Target className="w-5 h-5 text-white" />
           </div>
           <div>
             <p className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-              Premium Plan
+              Productivity Tracker
             </p>
             <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-              842 / 1,000 leads left
+              Your daily metrics
             </p>
           </div>
         </div>
-        <div
-          className="w-full h-1.5 rounded-full overflow-hidden"
-          style={{ background: 'var(--border-color)' }}
-        >
-          <div
-            className="h-full w-[84%] rounded-full nexli-gradient-bg"
-            style={{ transition: 'width 0.5s ease' }}
-          ></div>
+
+        <div className="space-y-3">
+          {/* Total Leads */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Users className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Total Leads
+              </span>
+            </div>
+            <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+              {allLeads.length}
+            </span>
+          </div>
+
+          {/* Active Campaigns */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Mail className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Campaigns
+              </span>
+            </div>
+            <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+              {campaigns.filter((c) => c.status === 'active').length} / {campaigns.length}
+            </span>
+          </div>
+
+          {/* Emails Sent */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Send className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Emails Sent
+              </span>
+            </div>
+            <span className="text-sm font-bold text-blue-500">
+              {campaigns.reduce((sum, c) => sum + c.metrics.sent, 0)}
+            </span>
+          </div>
+
+          {/* Reply Rate */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Reply className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Replies
+              </span>
+            </div>
+            <span className="text-sm font-bold text-green-500">
+              {campaigns.reduce((sum, c) => sum + c.metrics.replied, 0)}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1953,6 +2161,12 @@ export default function App() {
   // Mobile sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Notifications state with localStorage persistence
+  const [notifications, setNotifications] = useState<Notification[]>(() => {
+    const stored = localStorage.getItem('nexli-notifications');
+    return stored ? JSON.parse(stored) : [];
+  });
+
   const [isDark, setIsDark] = useState(() => {
     const stored = localStorage.getItem('nexli-theme');
     if (stored) return stored === 'dark';
@@ -1981,8 +2195,52 @@ export default function App() {
     localStorage.setItem('nexli-email-logs', JSON.stringify(emailLogs));
   }, [emailLogs]);
 
+  // Persist notifications to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexli-notifications', JSON.stringify(notifications));
+  }, [notifications]);
+
+  // Notification helper functions
+  const addNotification = (
+    type: 'success' | 'info' | 'warning' | 'error',
+    title: string,
+    message: string,
+    icon?: 'lead' | 'email' | 'campaign' | 'reply' | 'error'
+  ) => {
+    const notification: Notification = {
+      id: `notif-${Date.now()}-${Math.random()}`,
+      type,
+      title,
+      message,
+      timestamp: new Date().toISOString(),
+      read: false,
+      icon,
+    };
+    setNotifications((prev) => [notification, ...prev]);
+  };
+
+  const markNotificationAsRead = (id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+  };
+
   const handleLeadsFound = (newLeads: Lead[]) => {
     setAllLeads((prev) => [...newLeads, ...prev]);
+
+    // Add notification for new leads
+    if (newLeads.length > 0) {
+      addNotification(
+        'success',
+        'New Leads Found!',
+        `Successfully scraped ${newLeads.length} new lead${newLeads.length > 1 ? 's' : ''}`,
+        'lead'
+      );
+    }
   };
 
   const toggleTheme = () => setIsDark((prev) => !prev);
@@ -2051,8 +2309,24 @@ export default function App() {
       className="min-h-screen transition-colors duration-300"
       style={{ background: 'var(--bg-primary)' }}
     >
-      <Navbar isDark={isDark} onToggleTheme={toggleTheme} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} isDark={isDark} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      <Navbar
+        isDark={isDark}
+        onToggleTheme={toggleTheme}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        notifications={notifications}
+        onMarkAsRead={markNotificationAsRead}
+        onClearAll={clearAllNotifications}
+      />
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isDark={isDark}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        allLeads={allLeads}
+        campaigns={campaigns}
+      />
 
       <main className="pt-16 md:pl-64 min-h-screen">
         <div className="p-8 max-w-7xl mx-auto">
