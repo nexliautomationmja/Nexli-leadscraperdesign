@@ -210,3 +210,13 @@
   border-right-color: #06B6D4;
   animation: gradient-spin 0.8s linear infinite;
 }
+
+/* ===== Shimmer Animation ===== */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%) translateY(-100%) rotate(45deg);
+  }
+  100% {
+    transform: translateX(100%) translateY(100%) rotate(45deg);
+  }
+}
