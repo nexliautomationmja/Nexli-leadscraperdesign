@@ -598,13 +598,13 @@ const Navbar = ({
 
         <div className="hidden md:flex items-center gap-1">
           <div
-            className="relative px-6 py-2.5 rounded-full font-bold text-sm tracking-wide flex items-center gap-2.5 overflow-hidden"
+            className="relative px-4 py-2 rounded-full font-medium text-sm tracking-tight flex items-center gap-2 overflow-hidden"
             style={{
               background: isDark ? 'rgba(11, 17, 33, 0.6)' : 'rgba(255, 255, 255, 0.8)',
               border: '2px solid transparent',
               backgroundImage: isDark
-                ? 'linear-gradient(rgba(11, 17, 33, 0.6), rgba(11, 17, 33, 0.6)), linear-gradient(135deg, #06B6D4, #2563EB)'
-                : 'linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)), linear-gradient(135deg, #06B6D4, #2563EB)',
+                ? 'linear-gradient(rgba(11, 17, 33, 0.6), rgba(11, 17, 33, 0.6)), linear-gradient(135deg, #2563EB, #06B6D4)'
+                : 'linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)), linear-gradient(135deg, #2563EB, #06B6D4)',
               backgroundOrigin: 'border-box',
               backgroundClip: 'padding-box, border-box',
             }}
@@ -614,14 +614,14 @@ const Navbar = ({
               className="absolute blur-md opacity-40"
               style={{
                 inset: '-100%',
-                background: 'linear-gradient(135deg, transparent 30%, #06B6D4 50%, #2563EB 70%, transparent 100%)',
+                background: 'linear-gradient(135deg, transparent 30%, #2563EB 50%, #06B6D4 70%, transparent 100%)',
                 animation: 'shimmer 8s linear infinite',
               }}
             />
 
-            <Search className="w-4 h-4 relative z-10" style={{ color: '#06B6D4' }} />
-            <span className="relative z-10" style={{
-              background: 'linear-gradient(135deg, #06B6D4, #2563EB)',
+            <Search className="w-4 h-4 relative z-10" style={{ color: '#2563EB' }} />
+            <span className="relative z-10 whitespace-nowrap" style={{
+              background: 'linear-gradient(135deg, #2563EB, #06B6D4)',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
               backgroundClip: 'text',
