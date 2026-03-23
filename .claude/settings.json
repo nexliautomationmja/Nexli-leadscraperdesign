@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/marcelallen/leadscraperdesign/Nexli-leadscraperdesign log --oneline -5)"
+    ]
+  }
+}

@@ -27,6 +27,14 @@ import {
   Loader2,
   Zap,
   Upload,
+  Eye,
+  MousePointer,
+  Reply,
+  Menu,
+  Play,
+  Pause,
+  BarChart3,
+  RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -67,6 +75,43 @@ interface Lead {
   score: number;
   generatedEmail?: { subject: string; body: string };
   emailSendStatus?: 'draft' | 'sent' | 'failed';
+}
+
+interface Campaign {
+  id: string;
+  name: string;
+  createdAt: string;
+  status: 'draft' | 'active' | 'paused' | 'completed';
+  leadIds: string[];
+  emailTemplate?: { subject: string; body: string };
+  senderName: string;
+  senderEmail: string;
+  metrics: {
+    total: number;
+    sent: number;
+    delivered: number;
+    opened: number;
+    clicked: number;
+    replied: number;
+    bounced: number;
+  };
+  schedule?: {
+    startDate: string;
+    dailyLimit: number;
+  };
+}
+
+interface EmailLog {
+  id: string;
+  campaignId: string;
+  leadId: string;
+  leadName: string;
+  leadEmail: string;
+  sentAt?: string;
+  status: 'pending' | 'sent' | 'delivered' | 'opened' | 'clicked' | 'replied' | 'bounced' | 'failed';
+  subject: string;
+  body?: string;
+  errorMessage?: string;
 }
 
 // --- Lead Scoring ---
@@ -374,16 +419,33 @@ const ThemeToggle = ({ isDark, onToggle }: { isDark: boolean; onToggle: () => vo
 );
 
 // --- Components ---
-const Navbar = ({ isDark, onToggleTheme }: { isDark: boolean; onToggleTheme: () => void }) => {
+const Navbar = ({
+  isDark,
+  onToggleTheme,
+  sidebarOpen,
+  setSidebarOpen,
+}: {
+  isDark: boolean;
+  onToggleTheme: () => void;
+  sidebarOpen: boolean;
+  setSidebarOpen: (open: boolean) => void;
+}) => {
   return (
     <nav
-      className="fixed top-0 left-0 right-0 z-50 h-16 flex items-center px-6 justify-between backdrop-blur-xl transition-colors duration-300"
+      className="fixed top-0 left-0 right-0 z-50 h-16 flex items-center px-4 md:px-6 justify-between backdrop-blur-xl transition-colors duration-300"
       style={{
         background: isDark ? 'rgba(11, 17, 33, 0.8)' : 'rgba(255, 255, 255, 0.8)',
         borderBottom: `1px solid var(--border-subtle)`,
       }}
     >
-      <div className="flex items-center gap-8">
+      <div className="flex items-center gap-4 md:gap-8">
+        {/* Hamburger Menu - Mobile Only */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="md:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
         <div className="flex items-center gap-2.5">
           <NexliIcon className="w-8 h-8" />
           <NexliWordmark />
@@ -429,26 +491,45 @@ const Sidebar = ({
   activeTab,
   setActiveTab,
   isDark,
+  sidebarOpen,
+  setSidebarOpen,
 }: {
   activeTab: string;
   setActiveTab: (t: string) => void;
   isDark: boolean;
+  sidebarOpen: boolean;
+  setSidebarOpen: (open: boolean) => void;
 }) => {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'scraper', label: 'Lead Scraper', icon: Search },
     { id: 'leads', label: 'My Leads', icon: Users },
+    { id: 'campaigns', label: 'Email Campaigns', icon: Mail },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   return (
-    <aside
-      className="fixed left-0 top-16 bottom-0 w-64 p-4 flex flex-col justify-between transition-colors duration-300"
-      style={{
-        background: 'var(--bg-surface)',
-        borderRight: `1px solid var(--border-subtle)`,
-      }}
-    >
+    <>
+      {/* Overlay for mobile */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        className={cn(
+          'fixed left-0 top-16 bottom-0 w-64 p-4 flex flex-col justify-between z-40',
+          'transition-all duration-300 ease-in-out',
+          'md:translate-x-0',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
+        style={{
+          background: 'var(--bg-surface)',
+          borderRight: `1px solid var(--border-subtle)`,
+        }}
+      >
       <div className="space-y-1">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
@@ -531,6 +612,7 @@ const Sidebar = ({
         </p>
       </div>
     </aside>
+    </>
   );
 };
 
@@ -1492,10 +1574,326 @@ const ScraperView = ({
   );
 };
 
+// --- Campaigns View ---
+function CampaignsView({
+  isDark,
+  campaigns,
+  setCampaigns,
+  emailLogs,
+  setEmailLogs,
+  allLeads,
+}: {
+  isDark: boolean;
+  campaigns: Campaign[];
+  setCampaigns: React.Dispatch<React.SetStateAction<Campaign[]>>;
+  emailLogs: EmailLog[];
+  setEmailLogs: React.Dispatch<React.SetStateAction<EmailLog[]>>;
+  allLeads: Lead[];
+}) {
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
+  const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
+
+  // Calculate total metrics across all campaigns
+  const totalMetrics = campaigns.reduce(
+    (acc, campaign) => ({
+      sent: acc.sent + campaign.metrics.sent,
+      opened: acc.opened + campaign.metrics.opened,
+      clicked: acc.clicked + campaign.metrics.clicked,
+      replied: acc.replied + campaign.metrics.replied,
+    }),
+    { sent: 0, opened: 0, clicked: 0, replied: 0 }
+  );
+
+  // Calculate rates
+  const openRate = totalMetrics.sent > 0 ? Math.round((totalMetrics.opened / totalMetrics.sent) * 100) : 0;
+  const clickRate = totalMetrics.opened > 0 ? Math.round((totalMetrics.clicked / totalMetrics.opened) * 100) : 0;
+  const replyRate = totalMetrics.sent > 0 ? Math.round((totalMetrics.replied / totalMetrics.sent) * 100) : 0;
+
+  return (
+    <div className="p-4 md:p-6 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
+            <Mail className="w-7 h-7 md:w-8 md:h-8 text-blue-500" />
+            Email Campaigns
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+            Manage bulk email outreach and track Justine's progress
+          </p>
+        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="nexli-btn-gradient px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center"
+        >
+          <Plus className="w-4 h-4" />
+          New Campaign
+        </button>
+      </div>
+
+      {/* Overview Stats - Justine's Dashboard */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
+        <div className="glass-card p-4 md:p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="w-10 h-10 rounded-xl nexli-gradient-bg flex items-center justify-center">
+              <Send className="w-5 h-5 text-white" />
+            </div>
+            <TrendingUp className="w-4 h-4 text-green-500" />
+          </div>
+          <div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+              Total Sent
+            </p>
+            <p className="text-2xl md:text-3xl font-bold mt-1">{totalMetrics.sent}</p>
+          </div>
+        </div>
+
+        <div className="glass-card p-4 md:p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
+              <Eye className="w-5 h-5 text-purple-500" />
+            </div>
+            <span className="text-xs font-bold text-purple-500">{openRate}%</span>
+          </div>
+          <div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+              Opened
+            </p>
+            <p className="text-2xl md:text-3xl font-bold mt-1">{totalMetrics.opened}</p>
+          </div>
+        </div>
+
+        <div className="glass-card p-4 md:p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
+              <MousePointer className="w-5 h-5 text-orange-500" />
+            </div>
+            <span className="text-xs font-bold text-orange-500">{clickRate}%</span>
+          </div>
+          <div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+              Clicked
+            </p>
+            <p className="text-2xl md:text-3xl font-bold mt-1">{totalMetrics.clicked}</p>
+          </div>
+        </div>
+
+        <div className="glass-card p-4 md:p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="w-10 h-10 rounded-xl bg-green-500/20 flex items-center justify-center">
+              <Reply className="w-5 h-5 text-green-500" />
+            </div>
+            <span className="text-xs font-bold text-green-500">{replyRate}%</span>
+          </div>
+          <div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+              Replied
+            </p>
+            <p className="text-2xl md:text-3xl font-bold mt-1">{totalMetrics.replied}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Active Campaigns Progress */}
+      {campaigns.filter((c) => c.status === 'active').length > 0 && (
+        <div className="glass-card p-4 md:p-6">
+          <h2 className="text-lg md:text-xl font-bold mb-4 flex items-center gap-2">
+            <BarChart3 className="w-5 h-5" />
+            Justine's Active Campaigns
+          </h2>
+          <div className="space-y-4">
+            {campaigns
+              .filter((c) => c.status === 'active')
+              .map((campaign) => {
+                const progress = campaign.metrics.total > 0
+                  ? Math.round((campaign.metrics.sent / campaign.metrics.total) * 100)
+                  : 0;
+                return (
+                  <div key={campaign.id} className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{campaign.name}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {campaign.metrics.sent} / {campaign.metrics.total} sent ({progress}%)
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                      <div
+                        className="h-full nexli-gradient-bg transition-all duration-500"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* Campaign List */}
+      <div className="glass-card p-4 md:p-6">
+        <h2 className="text-lg md:text-xl font-bold mb-4">All Campaigns</h2>
+        {campaigns.length === 0 ? (
+          <div className="text-center py-12">
+            <Mail className="w-12 h-12 mx-auto mb-4 opacity-30" />
+            <p className="text-lg font-medium mb-2">No campaigns yet</p>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+              Create your first email campaign to start sending
+            </p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="nexli-btn-gradient px-4 py-2 rounded-xl font-medium"
+            >
+              Create Campaign
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {campaigns.map((campaign) => (
+              <div
+                key={campaign.id}
+                className="glass-card p-4 hover:shadow-lg transition-all cursor-pointer group"
+                onClick={() => setSelectedCampaign(campaign)}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1">
+                    <h3 className="font-bold text-lg mb-1">{campaign.name}</h3>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      Created {new Date(campaign.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      'px-2.5 py-1 rounded-lg text-xs font-bold',
+                      campaign.status === 'active' && 'bg-green-500/20 text-green-500',
+                      campaign.status === 'draft' && 'bg-gray-500/20 text-gray-500',
+                      campaign.status === 'paused' && 'bg-yellow-500/20 text-yellow-500',
+                      campaign.status === 'completed' && 'bg-blue-500/20 text-blue-500'
+                    )}
+                  >
+                    {campaign.status}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div>
+                    <p className="text-lg font-bold">{campaign.metrics.sent}</p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Sent</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-purple-500">{campaign.metrics.opened}</p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Opens</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-orange-500">{campaign.metrics.clicked}</p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Clicks</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-green-500">{campaign.metrics.replied}</p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Replies</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Recent Email Activity */}
+      <div className="glass-card p-4 md:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg md:text-xl font-bold">Recent Activity</h2>
+          <button className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+            <RefreshCw className="w-3 h-3" />
+            Refresh
+          </button>
+        </div>
+        {emailLogs.length === 0 ? (
+          <p className="text-center py-8" style={{ color: 'var(--text-muted)' }}>
+            No emails sent yet
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b" style={{ borderColor: 'var(--border-color)' }}>
+                  <th className="text-left py-2 font-medium" style={{ color: 'var(--text-muted)' }}>Lead</th>
+                  <th className="text-left py-2 font-medium hidden md:table-cell" style={{ color: 'var(--text-muted)' }}>Email</th>
+                  <th className="text-left py-2 font-medium" style={{ color: 'var(--text-muted)' }}>Status</th>
+                  <th className="text-left py-2 font-medium hidden sm:table-cell" style={{ color: 'var(--text-muted)' }}>Sent</th>
+                </tr>
+              </thead>
+              <tbody>
+                {emailLogs.slice(0, 10).map((log) => (
+                  <tr key={log.id} className="border-b" style={{ borderColor: 'var(--border-color)' }}>
+                    <td className="py-3 font-medium">{log.leadName}</td>
+                    <td className="py-3 hidden md:table-cell" style={{ color: 'var(--text-muted)' }}>{log.leadEmail}</td>
+                    <td className="py-3">
+                      <span
+                        className={cn(
+                          'px-2 py-0.5 rounded text-xs font-bold',
+                          log.status === 'sent' && 'bg-blue-500/20 text-blue-500',
+                          log.status === 'opened' && 'bg-purple-500/20 text-purple-500',
+                          log.status === 'clicked' && 'bg-orange-500/20 text-orange-500',
+                          log.status === 'replied' && 'bg-green-500/20 text-green-500',
+                          log.status === 'failed' && 'bg-red-500/20 text-red-500',
+                          log.status === 'pending' && 'bg-gray-500/20 text-gray-500'
+                        )}
+                      >
+                        {log.status}
+                      </span>
+                    </td>
+                    <td className="py-3 text-xs hidden sm:table-cell" style={{ color: 'var(--text-muted)' }}>
+                      {log.sentAt ? new Date(log.sentAt).toLocaleString() : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Create Campaign Modal (placeholder for now) */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="glass-card p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold mb-4">Create New Campaign</h2>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+              Campaign creation modal coming soon...
+            </p>
+            <button
+              onClick={() => setShowCreateModal(false)}
+              className="nexli-btn-gradient px-4 py-2 rounded-xl w-full"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Main App ---
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
+
+  // Campaign state with localStorage persistence
+  const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
+    const stored = localStorage.getItem('nexli-campaigns');
+    return stored ? JSON.parse(stored) : [];
+  });
+
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>(() => {
+    const stored = localStorage.getItem('nexli-email-logs');
+    return stored ? JSON.parse(stored) : [];
+  });
+
+  // Mobile sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [isDark, setIsDark] = useState(() => {
     const stored = localStorage.getItem('nexli-theme');
     if (stored) return stored === 'dark';
@@ -1513,6 +1911,16 @@ export default function App() {
     document.documentElement.classList.toggle('dark', isDark);
     localStorage.setItem('nexli-theme', isDark ? 'dark' : 'light');
   }, [isDark]);
+
+  // Persist campaigns to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexli-campaigns', JSON.stringify(campaigns));
+  }, [campaigns]);
+
+  // Persist email logs to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexli-email-logs', JSON.stringify(emailLogs));
+  }, [emailLogs]);
 
   const handleLeadsFound = (newLeads: Lead[]) => {
     setAllLeads((prev) => [...newLeads, ...prev]);
@@ -1584,10 +1992,10 @@ export default function App() {
       className="min-h-screen transition-colors duration-300"
       style={{ background: 'var(--bg-primary)' }}
     >
-      <Navbar isDark={isDark} onToggleTheme={toggleTheme} />
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} isDark={isDark} />
+      <Navbar isDark={isDark} onToggleTheme={toggleTheme} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} isDark={isDark} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
-      <main className="pl-64 pt-16 min-h-screen">
+      <main className="pt-16 md:pl-64 min-h-screen">
         <div className="p-8 max-w-7xl mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
@@ -1787,6 +2195,16 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              )}
+              {activeTab === 'campaigns' && (
+                <CampaignsView
+                  isDark={isDark}
+                  campaigns={campaigns}
+                  setCampaigns={setCampaigns}
+                  emailLogs={emailLogs}
+                  setEmailLogs={setEmailLogs}
+                  allLeads={allLeads}
+                />
               )}
               {activeTab === 'settings' && (
                 <div className="space-y-8">
