@@ -20,6 +20,13 @@ import {
   Shield,
   TrendingUp,
   Target,
+  Copy,
+  X,
+  Sparkles,
+  Send,
+  Loader2,
+  Zap,
+  Upload,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -55,11 +62,66 @@ interface Lead {
   orgWebsite?: string;
   orgSize?: string;
   orgIndustry?: string;
+  seniority?: string;
+  functional?: string;
+  score: number;
+  generatedEmail?: { subject: string; body: string };
+  emailSendStatus?: 'draft' | 'sent' | 'failed';
+}
+
+// --- Lead Scoring ---
+function calculateLeadScore(lead: {
+  email: string;
+  status: string;
+  linkedin: string;
+  orgSize?: string;
+  seniority?: string;
+  orgWebsite?: string;
+  functional?: string;
+}): number {
+  let score = 0;
+  if (lead.status === 'verified') score += 20;
+  if (lead.linkedin) score += 10;
+  const size = lead.orgSize || '';
+  if (size.includes('1-10') || size.includes('11-20') || size.includes('21-50')) score += 20;
+  const sen = (lead.seniority || '').toLowerCase();
+  if (['c-suite', 'owner', 'partner', 'founder'].some((s) => sen.includes(s))) score += 25;
+  if (lead.orgWebsite) score += 10;
+  const fn = (lead.functional || '').toLowerCase();
+  if (fn.includes('accounting') || fn.includes('finance')) score += 10;
+  return Math.min(score, 95);
+}
+
+function getScoreTier(score: number): { label: string; color: string; bg: string } {
+  if (score >= 60) return { label: 'Hot', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.12)' };
+  if (score >= 30) return { label: 'Warm', color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.12)' };
+  return { label: 'Cold', color: '#6B7280', bg: 'rgba(107, 114, 128, 0.12)' };
+}
+
+// --- CSV Export ---
+function exportLeadsToCSV(leads: Lead[]) {
+  const headers = ['Name', 'Email', 'Company', 'Role', 'Status', 'Score', 'LinkedIn', 'Phone', 'City', 'State', 'Country', 'Website', 'Company Size', 'Industry'];
+  const rows = leads.map((l) => [
+    l.name, l.email, l.company, l.role, l.status, l.score,
+    l.linkedin, l.phone || '', l.city || '', l.state || '', l.country || '',
+    l.orgWebsite || '', l.orgSize || '', l.orgIndustry || '',
+  ]);
+
+  const csv = [headers.join(','), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `nexli-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // Map Apify output to our Lead format
 function mapApifyLead(item: any, index: number): Lead {
-  return {
+  const seniority = item.seniority || '';
+  const functional = item.personFunction || '';
+  const lead: Lead = {
     id: `lead-${Date.now()}-${index}`,
     name: item.fullName || 'Unknown',
     email: item.email || '',
@@ -74,7 +136,12 @@ function mapApifyLead(item: any, index: number): Lead {
     orgWebsite: item.orgWebsite || '',
     orgSize: item.orgSize || '',
     orgIndustry: item.orgIndustry || '',
+    seniority,
+    functional,
+    score: 0,
   };
+  lead.score = calculateLeadScore(lead);
+  return lead;
 }
 
 // --- Nexli Logo SVG Component ---
@@ -102,6 +169,161 @@ const NexliWordmark = ({ className = '' }: { className?: string }) => (
   >
     NEXLI
   </span>
+);
+
+// --- Score Badge ---
+const ScoreBadge = ({ score }: { score: number }) => {
+  const tier = getScoreTier(score);
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
+      style={{ background: tier.bg, color: tier.color }}
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: tier.color }}></span>
+      {tier.label} {score}
+    </span>
+  );
+};
+
+// --- Email Generation Modal ---
+const EmailGenerationModal = ({
+  lead,
+  email,
+  isGenerating,
+  error,
+  onClose,
+  onSend,
+  canSend,
+  isSending,
+}: {
+  lead: Lead;
+  email: { subject: string; body: string } | null;
+  isGenerating: boolean;
+  error: string;
+  onClose: () => void;
+  onSend: () => void;
+  canSend: boolean;
+  isSending: boolean;
+}) => (
+  <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="relative w-full max-w-2xl rounded-2xl overflow-hidden"
+      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between p-5"
+        style={{ borderBottom: '1px solid var(--border-subtle)' }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl nexli-gradient-bg">
+            <Sparkles className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h3 className="font-bold font-display" style={{ color: 'var(--text-primary)' }}>
+              AI Email for {lead.name}
+            </h3>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {lead.role} at {lead.company}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-2 rounded-xl transition-colors"
+          style={{ color: 'var(--text-muted)' }}
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+        {isGenerating && (
+          <div className="flex flex-col items-center justify-center py-12 gap-4">
+            <div className="gradient-spinner"></div>
+            <p className="text-sm font-medium animate-nexli-pulse" style={{ color: 'var(--text-muted)' }}>
+              Generating personalized email with AI...
+            </p>
+          </div>
+        )}
+        {error && (
+          <div className="p-4 rounded-xl text-sm" style={{ background: 'var(--status-failed-bg)', color: 'var(--status-failed-text)' }}>
+            {error}
+          </div>
+        )}
+        {email && !isGenerating && (
+          <>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                Subject
+              </label>
+              <div
+                className="px-4 py-3 rounded-xl text-sm font-medium"
+                style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+              >
+                {email.subject}
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                Body
+              </label>
+              <div
+                className="px-4 py-3 rounded-xl text-sm whitespace-pre-wrap leading-relaxed"
+                style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+              >
+                {email.body}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Footer */}
+      {email && !isGenerating && (
+        <div
+          className="flex items-center justify-between p-5 gap-3"
+          style={{ borderTop: '1px solid var(--border-subtle)' }}
+        >
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(`Subject: ${email.subject}\n\n${email.body}`);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors"
+            style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+          >
+            <Copy className="w-4 h-4" />
+            Copy
+          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl text-sm font-bold transition-colors"
+              style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+            >
+              Close
+            </button>
+            {canSend && (
+              <button
+                onClick={onSend}
+                disabled={isSending}
+                className="nexli-btn-gradient px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 disabled:opacity-50"
+              >
+                {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                <span>{isSending ? 'Sending...' : 'Send Email'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  </div>
 );
 
 // --- Mock Data ---
@@ -190,7 +412,7 @@ const Navbar = ({ isDark, onToggleTheme }: { isDark: boolean; onToggleTheme: () 
           onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
         >
           <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-nexli-blue ring-2" style={{ ringColor: 'var(--bg-primary)' }}></span>
+          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-nexli-blue" style={{ boxShadow: '0 0 0 2px var(--bg-primary)' }}></span>
         </button>
 
         <div className="h-8 w-px mx-1" style={{ background: 'var(--border-color)' }}></div>
@@ -363,6 +585,12 @@ const StatCard = ({
 );
 
 const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: boolean }) => {
+  // Calculate lead tier breakdown
+  const hotLeads = recentLeads.filter((l) => l.score >= 60).length;
+  const warmLeads = recentLeads.filter((l) => l.score >= 30 && l.score < 60).length;
+  const coldLeads = recentLeads.filter((l) => l.score < 30).length;
+  const totalLeads = recentLeads.length;
+
   return (
     <div className="space-y-8">
       <header>
@@ -383,6 +611,94 @@ const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: b
         <StatCard title="LinkedIn Profiles" value="4,201" icon={Linkedin} trend={15} />
         <StatCard title="Success Rate" value="94.2%" icon={Target} trend={2} />
       </div>
+
+      {/* Lead Quality Breakdown */}
+      {totalLeads > 0 && (
+        <div className="glass-card p-6 rounded-2xl">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold font-display" style={{ color: 'var(--text-primary)' }}>
+              Lead Quality Score Breakdown
+            </h3>
+            <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+              {totalLeads} total leads
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Hot Leads */}
+            <div className="p-4 rounded-xl transition-all hover:scale-105" style={{ background: 'rgba(239, 68, 68, 0.08)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#EF4444' }}>
+                  🔥 Hot Leads
+                </span>
+                <span className="text-2xl font-bold font-display" style={{ color: '#EF4444' }}>
+                  {hotLeads}
+                </span>
+              </div>
+              <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'rgba(239, 68, 68, 0.15)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${totalLeads > 0 ? (hotLeads / totalLeads) * 100 : 0}%`,
+                    background: '#EF4444',
+                  }}
+                ></div>
+              </div>
+              <p className="text-xs mt-2" style={{ color: '#EF4444' }}>
+                Score 60+ • Ready to convert
+              </p>
+            </div>
+
+            {/* Warm Leads */}
+            <div className="p-4 rounded-xl transition-all hover:scale-105" style={{ background: 'rgba(245, 158, 11, 0.08)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#F59E0B' }}>
+                  ⚡ Warm Leads
+                </span>
+                <span className="text-2xl font-bold font-display" style={{ color: '#F59E0B' }}>
+                  {warmLeads}
+                </span>
+              </div>
+              <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'rgba(245, 158, 11, 0.15)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${totalLeads > 0 ? (warmLeads / totalLeads) * 100 : 0}%`,
+                    background: '#F59E0B',
+                  }}
+                ></div>
+              </div>
+              <p className="text-xs mt-2" style={{ color: '#F59E0B' }}>
+                Score 30-59 • Good potential
+              </p>
+            </div>
+
+            {/* Cold Leads */}
+            <div className="p-4 rounded-xl transition-all hover:scale-105" style={{ background: 'rgba(107, 114, 128, 0.08)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#6B7280' }}>
+                  ❄️ Cold Leads
+                </span>
+                <span className="text-2xl font-bold font-display" style={{ color: '#6B7280' }}>
+                  {coldLeads}
+                </span>
+              </div>
+              <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'rgba(107, 114, 128, 0.15)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${totalLeads > 0 ? (coldLeads / totalLeads) * 100 : 0}%`,
+                    background: '#6B7280',
+                  }}
+                ></div>
+              </div>
+              <p className="text-xs mt-2" style={{ color: '#6B7280' }}>
+                Score &lt;30 • Needs nurturing
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Chart */}
@@ -566,6 +882,18 @@ const ScraperView = ({
   const [stateFilter, setStateFilter] = useState<string>('');
   const [cityFilter, setCityFilter] = useState<string>('');
 
+  // Email generation state
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [generatedEmail, setGeneratedEmail] = useState<{ subject: string; body: string } | null>(null);
+  const [isGeneratingEmail, setIsGeneratingEmail] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  // Filtering and sorting state
+  const [scoreFilter, setScoreFilter] = useState<'all' | 'hot' | 'warm' | 'cold'>('all');
+  const [sortBy, setSortBy] = useState<'score' | 'name' | 'company'>('score');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
   const US_STATES = [
     'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
     'Delaware', 'District of Columbia', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois',
@@ -576,6 +904,94 @@ const ScraperView = ({
     'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington',
     'West Virginia', 'Wisconsin', 'Wyoming',
   ];
+
+  // Email generation handlers
+  const handleGenerateEmail = async (lead: Lead) => {
+    setSelectedLead(lead);
+    setGeneratedEmail(null);
+    setEmailError('');
+    setIsGeneratingEmail(true);
+
+    try {
+      // TODO: Optionally fetch LinkedIn posts first for better personalization
+      const response = await fetch('/api/generate-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead, posts: [] }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate email');
+      }
+
+      const email = await response.json();
+      setGeneratedEmail(email);
+    } catch (err: any) {
+      setEmailError(err.message || 'Failed to generate email');
+    } finally {
+      setIsGeneratingEmail(false);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!selectedLead || !generatedEmail) return;
+
+    setIsSendingEmail(true);
+    try {
+      // For now, just copy to clipboard - you'll need to configure Zapier webhook URL
+      const emailText = `Subject: ${generatedEmail.subject}\n\n${generatedEmail.body}`;
+      await navigator.clipboard.writeText(emailText);
+
+      // Update lead status
+      const updatedResults = results.map((l) =>
+        l.id === selectedLead.id ? { ...l, emailSendStatus: 'sent' as const, generatedEmail } : l
+      );
+      setResults(updatedResults);
+
+      alert('Email copied to clipboard! Configure Zapier webhook in Settings to send automatically.');
+      setSelectedLead(null);
+      setGeneratedEmail(null);
+    } catch (err: any) {
+      setEmailError(err.message || 'Failed to send email');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
+  const handleCloseEmailModal = () => {
+    setSelectedLead(null);
+    setGeneratedEmail(null);
+    setEmailError('');
+  };
+
+  // Filter and sort results
+  const filteredAndSortedResults = React.useMemo(() => {
+    let filtered = [...results];
+
+    // Apply score filter
+    if (scoreFilter === 'hot') {
+      filtered = filtered.filter((l) => l.score >= 60);
+    } else if (scoreFilter === 'warm') {
+      filtered = filtered.filter((l) => l.score >= 30 && l.score < 60);
+    } else if (scoreFilter === 'cold') {
+      filtered = filtered.filter((l) => l.score < 30);
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === 'score') {
+        comparison = a.score - b.score;
+      } else if (sortBy === 'name') {
+        comparison = a.name.localeCompare(b.name);
+      } else if (sortBy === 'company') {
+        comparison = a.company.localeCompare(b.company);
+      }
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+
+    return filtered;
+  }, [results, scoreFilter, sortBy, sortOrder]);
 
   // Build Apify filters from user query + settings
   const buildFilters = () => {
@@ -879,23 +1295,50 @@ const ScraperView = ({
                 <span
                   className="text-xs font-bold px-2 py-0.5 rounded-full nexli-gradient-bg text-white"
                 >
-                  {results.length} found
+                  {filteredAndSortedResults.length} of {results.length} leads
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                {/* Score Filter */}
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg" style={{ background: 'var(--bg-elevated)' }}>
+                  <Filter className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                  <select
+                    value={scoreFilter}
+                    onChange={(e) => setScoreFilter(e.target.value as any)}
+                    className="text-xs font-bold outline-none cursor-pointer"
+                    style={{ background: 'transparent', color: 'var(--text-secondary)' }}
+                  >
+                    <option value="all">All Scores</option>
+                    <option value="hot">🔥 Hot (60+)</option>
+                    <option value="warm">⚡ Warm (30-59)</option>
+                    <option value="cold">❄️ Cold (&lt;30)</option>
+                  </select>
+                </div>
+
+                {/* Sort Controls */}
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg" style={{ background: 'var(--bg-elevated)' }}>
+                  <TrendingUp className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="text-xs font-bold outline-none cursor-pointer"
+                    style={{ background: 'transparent', color: 'var(--text-secondary)' }}
+                  >
+                    <option value="score">Score</option>
+                    <option value="name">Name</option>
+                    <option value="company">Company</option>
+                  </select>
+                  <button
+                    onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                    className="p-1 rounded transition-colors"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    <ArrowUpRight className={`w-3.5 h-3.5 transition-transform ${sortOrder === 'asc' ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+
                 <button
-                  className="p-2 rounded-lg transition-colors"
-                  style={{ color: 'var(--text-muted)' }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = 'var(--bg-elevated)')
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = 'transparent')
-                  }
-                >
-                  <Filter className="w-4 h-4" />
-                </button>
-                <button
+                  onClick={() => exportLeadsToCSV(filteredAndSortedResults)}
                   className="p-2 rounded-lg transition-colors"
                   style={{ color: 'var(--text-muted)' }}
                   onMouseEnter={(e) =>
@@ -917,18 +1360,19 @@ const ScraperView = ({
                 >
                   <th className="px-5 py-3.5">Lead</th>
                   <th className="px-5 py-3.5">Email Status</th>
+                  <th className="px-5 py-3.5">Score</th>
                   <th className="px-5 py-3.5">Company</th>
                   <th className="px-5 py-3.5">LinkedIn</th>
                   <th className="px-5 py-3.5"></th>
                 </tr>
               </thead>
               <tbody>
-                {results.map((lead, idx) => (
+                {filteredAndSortedResults.map((lead, idx) => (
                   <tr
                     key={lead.id}
                     className="group transition-colors"
                     style={{
-                      borderBottom: idx < results.length - 1 ? `1px solid var(--border-subtle)` : 'none',
+                      borderBottom: idx < filteredAndSortedResults.length - 1 ? `1px solid var(--border-subtle)` : 'none',
                     }}
                     onMouseEnter={(e) =>
                       (e.currentTarget.style.background = 'var(--bg-surface-hover)')
@@ -983,6 +1427,9 @@ const ScraperView = ({
                         {lead.status}
                       </div>
                     </td>
+                    <td className="px-5 py-4">
+                      <ScoreBadge score={lead.score} />
+                    </td>
                     <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
                       {lead.company}
                     </td>
@@ -1002,18 +1449,43 @@ const ScraperView = ({
                       </a>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <button
-                        className="opacity-0 group-hover:opacity-100 p-2 rounded-lg transition-all"
-                        style={{ color: 'var(--text-muted)' }}
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2 justify-end">
+                        <button
+                          onClick={() => handleGenerateEmail(lead)}
+                          className="opacity-0 group-hover:opacity-100 px-3 py-1.5 rounded-lg transition-all text-xs font-bold nexli-gradient-bg text-white flex items-center gap-1.5"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          Generate Email
+                        </button>
+                        <button
+                          className="opacity-0 group-hover:opacity-100 p-2 rounded-lg transition-all"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Email Generation Modal */}
+      <AnimatePresence>
+        {selectedLead && (
+          <EmailGenerationModal
+            lead={selectedLead}
+            email={generatedEmail}
+            isGenerating={isGeneratingEmail}
+            error={emailError}
+            onClose={handleCloseEmailModal}
+            onSend={handleSendEmail}
+            canSend={!!generatedEmail && !isGeneratingEmail}
+            isSending={isSendingEmail}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -1030,6 +1502,13 @@ export default function App() {
     return true; // Default to dark mode
   });
 
+  // Email generation state for My Leads view
+  const [selectedLeadForEmail, setSelectedLeadForEmail] = useState<Lead | null>(null);
+  const [generatedEmailForLead, setGeneratedEmailForLead] = useState<{ subject: string; body: string } | null>(null);
+  const [isGeneratingEmailForLead, setIsGeneratingEmailForLead] = useState(false);
+  const [emailErrorForLead, setEmailErrorForLead] = useState('');
+  const [isSendingEmailForLead, setIsSendingEmailForLead] = useState(false);
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
     localStorage.setItem('nexli-theme', isDark ? 'dark' : 'light');
@@ -1040,6 +1519,65 @@ export default function App() {
   };
 
   const toggleTheme = () => setIsDark((prev) => !prev);
+
+  // Email generation handlers for My Leads view
+  const handleGenerateEmailForLead = async (lead: Lead) => {
+    setSelectedLeadForEmail(lead);
+    setGeneratedEmailForLead(null);
+    setEmailErrorForLead('');
+    setIsGeneratingEmailForLead(true);
+
+    try {
+      const response = await fetch('/api/generate-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead, posts: [] }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate email');
+      }
+
+      const email = await response.json();
+      setGeneratedEmailForLead(email);
+    } catch (err: any) {
+      setEmailErrorForLead(err.message || 'Failed to generate email');
+    } finally {
+      setIsGeneratingEmailForLead(false);
+    }
+  };
+
+  const handleSendEmailForLead = async () => {
+    if (!selectedLeadForEmail || !generatedEmailForLead) return;
+
+    setIsSendingEmailForLead(true);
+    try {
+      const emailText = `Subject: ${generatedEmailForLead.subject}\n\n${generatedEmailForLead.body}`;
+      await navigator.clipboard.writeText(emailText);
+
+      // Update lead status
+      const updatedLeads = allLeads.map((l) =>
+        l.id === selectedLeadForEmail.id
+          ? { ...l, emailSendStatus: 'sent' as const, generatedEmail: generatedEmailForLead }
+          : l
+      );
+      setAllLeads(updatedLeads);
+
+      alert('Email copied to clipboard! Configure Zapier webhook in Settings to send automatically.');
+      setSelectedLeadForEmail(null);
+      setGeneratedEmailForLead(null);
+    } catch (err: any) {
+      setEmailErrorForLead(err.message || 'Failed to send email');
+    } finally {
+      setIsSendingEmailForLead(false);
+    }
+  };
+
+  const handleCloseEmailModalForLead = () => {
+    setSelectedLeadForEmail(null);
+    setGeneratedEmailForLead(null);
+    setEmailErrorForLead('');
+  };
 
   return (
     <div
@@ -1079,7 +1617,10 @@ export default function App() {
                         Manage and export your collected leads.
                       </p>
                     </div>
-                    <button className="nexli-btn-gradient px-6 py-2.5 rounded-full font-bold flex items-center gap-2 shadow-lg">
+                    <button
+                      onClick={() => exportLeadsToCSV(allLeads)}
+                      className="nexli-btn-gradient px-6 py-2.5 rounded-full font-bold flex items-center gap-2 shadow-lg"
+                    >
                       <Download className="w-4 h-4" />
                       <span>Export CSV</span>
                     </button>
@@ -1175,18 +1716,40 @@ export default function App() {
                                 </span>
                               </td>
                               <td className="px-5 py-4 text-right">
-                                <button
-                                  className="p-2 rounded-lg transition-all"
-                                  style={{ color: 'var(--text-muted)' }}
-                                  onMouseEnter={(e) =>
-                                    (e.currentTarget.style.background = 'var(--bg-elevated)')
-                                  }
-                                  onMouseLeave={(e) =>
-                                    (e.currentTarget.style.background = 'transparent')
-                                  }
-                                >
-                                  <ChevronRight className="w-4 h-4" />
-                                </button>
+                                <div className="flex items-center gap-2 justify-end">
+                                  {lead.emailSendStatus === 'sent' ? (
+                                    <span
+                                      className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"
+                                      style={{
+                                        background: 'var(--status-verified-bg)',
+                                        color: 'var(--status-verified-text)',
+                                      }}
+                                    >
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      Email Sent
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleGenerateEmailForLead(lead)}
+                                      className="opacity-0 group-hover:opacity-100 px-3 py-1.5 rounded-lg transition-all text-xs font-bold nexli-gradient-bg text-white flex items-center gap-1.5"
+                                    >
+                                      <Sparkles className="w-3 h-3" />
+                                      Generate Email
+                                    </button>
+                                  )}
+                                  <button
+                                    className="p-2 rounded-lg transition-all"
+                                    style={{ color: 'var(--text-muted)' }}
+                                    onMouseEnter={(e) =>
+                                      (e.currentTarget.style.background = 'var(--bg-elevated)')
+                                    }
+                                    onMouseLeave={(e) =>
+                                      (e.currentTarget.style.background = 'transparent')
+                                    }
+                                  >
+                                    <ChevronRight className="w-4 h-4" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1356,6 +1919,22 @@ export default function App() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Email Generation Modal for My Leads view */}
+      <AnimatePresence>
+        {selectedLeadForEmail && (
+          <EmailGenerationModal
+            lead={selectedLeadForEmail}
+            email={generatedEmailForLead}
+            isGenerating={isGeneratingEmailForLead}
+            error={emailErrorForLead}
+            onClose={handleCloseEmailModalForLead}
+            onSend={handleSendEmailForLead}
+            canSend={!!generatedEmailForLead && !isGeneratingEmailForLead}
+            isSending={isSendingEmailForLead}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
