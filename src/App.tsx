@@ -286,6 +286,51 @@ async function lookupWebsite(companyName: string, city?: string, state?: string)
   }
 }
 
+// Batch process website lookups to avoid rate limits and timeouts
+async function batchLookupWebsites<T extends { company?: string; city?: string; state?: string; orgWebsite?: string; website?: string }>(
+  leads: T[],
+  batchSize: number = 5,
+  delayMs: number = 500
+): Promise<T[]> {
+  const results = [...leads];
+
+  // Find leads that need website lookup
+  const needsLookup = leads
+    .map((lead, index) => ({ lead, index }))
+    .filter(({ lead }) => !lead.orgWebsite && lead.company && (lead.city || lead.state));
+
+  console.log(`Looking up websites for ${needsLookup.length} leads (batched in groups of ${batchSize})...`);
+
+  // Process in batches
+  for (let i = 0; i < needsLookup.length; i += batchSize) {
+    const batch = needsLookup.slice(i, i + batchSize);
+
+    // Process batch in parallel
+    await Promise.all(
+      batch.map(async ({ lead, index }) => {
+        const website = await lookupWebsite(lead.company!, lead.city, lead.state);
+        if (website) {
+          results[index].website = website;
+        }
+      })
+    );
+
+    // Delay between batches to respect rate limits
+    if (i + batchSize < needsLookup.length) {
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+
+  // Set orgWebsite as website for leads that already have it
+  results.forEach(lead => {
+    if (lead.orgWebsite && !lead.website) {
+      lead.website = lead.orgWebsite;
+    }
+  });
+
+  return results;
+}
+
 // Parse CSV and convert to leads
 function parseCSVToLeads(csvText: string): Lead[] {
   const lines = csvText.trim().split('\n');
@@ -2180,8 +2225,10 @@ const ScraperView = ({
       'Compiling lead quality scores...',
     ];
     let stepIdx = 0;
+    const maxPolls = 100; // 5 minutes max (100 * 3 seconds)
+    let pollCount = 0;
 
-    while (true) {
+    while (pollCount < maxPolls) {
       const res = await fetch(`/api/scrape/${runId}`);
       const data = await res.json();
 
@@ -2193,6 +2240,7 @@ const ScraperView = ({
       // Rotate through status messages while polling
       setScrapingStep(statusSteps[stepIdx % statusSteps.length]);
       stepIdx++;
+      pollCount++;
 
       if (data.status === 'SUCCEEDED') {
         return data;
@@ -2204,6 +2252,8 @@ const ScraperView = ({
       // Poll every 3 seconds
       await new Promise((r) => setTimeout(r, 3000));
     }
+
+    throw new Error('Scraping timeout - the operation took longer than expected. The Apify actor may still be running. Check your Apify dashboard.');
   };
 
   const handleScrape = async () => {
@@ -2251,22 +2301,9 @@ const ScraperView = ({
 
       const mapped = resultsData.items.map(mapApifyLead);
 
-      // Look up websites for leads that don't have one
-      setScrapingStep('Finding company websites...');
-      const leadsWithWebsites = await Promise.all(
-        mapped.map(async (lead) => {
-          // Use orgWebsite if available, otherwise look it up
-          if (lead.orgWebsite) {
-            lead.website = lead.orgWebsite;
-          } else if (lead.company && (lead.city || lead.state)) {
-            const foundWebsite = await lookupWebsite(lead.company, lead.city, lead.state);
-            if (foundWebsite) {
-              lead.website = foundWebsite;
-            }
-          }
-          return lead;
-        })
-      );
+      // Look up websites for leads that don't have one (batched to avoid rate limits)
+      setScrapingStep('Finding company websites (batched)...');
+      const leadsWithWebsites = await batchLookupWebsites(mapped, 5, 500);
 
       // Filter for decision makers only (title filtering)
       setScrapingStep('Filtering decision makers...');
