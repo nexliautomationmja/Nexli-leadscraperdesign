@@ -1971,6 +1971,10 @@ function CampaignsView({
   emailLogs,
   setEmailLogs,
   allLeads,
+  emailTemplates,
+  scheduledCampaigns,
+  setScheduledCampaigns,
+  addNotification,
 }: {
   isDark: boolean;
   campaigns: Campaign[];
@@ -1978,12 +1982,41 @@ function CampaignsView({
   emailLogs: EmailLog[];
   setEmailLogs: React.Dispatch<React.SetStateAction<EmailLog[]>>;
   allLeads: Lead[];
+  emailTemplates: EmailTemplate[];
+  scheduledCampaigns: string[];
+  setScheduledCampaigns: React.Dispatch<React.SetStateAction<string[]>>;
+  addNotification: (type: 'success' | 'info' | 'warning' | 'error', title: string, message: string, icon?: 'lead' | 'email' | 'campaign' | 'reply' | 'error') => void;
 }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  // Campaign creation form state
+  const [campaignName, setCampaignName] = useState('');
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+  const [selectedLeadsForCampaign, setSelectedLeadsForCampaign] = useState<string[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
+
+  // Feature toggles
+  const [enableABTest, setEnableABTest] = useState(false);
+  const [abVariantA, setAbVariantA] = useState('');
+  const [abVariantB, setAbVariantB] = useState('');
+  const [abTestSize, setAbTestSize] = useState(20);
+
+  const [enableScheduled, setEnableScheduled] = useState(false);
+  const [scheduledDateTime, setScheduledDateTime] = useState('');
+  const [scheduledTimezone, setScheduledTimezone] = useState('PST');
+
+  const [enableFollowUp, setEnableFollowUp] = useState(false);
+  const [followUpSteps, setFollowUpSteps] = useState<Array<{
+    delayDays: number;
+    condition: 'no_reply' | 'no_open' | 'always';
+    subject: string;
+    body: string;
+  }>>([]);
 
   // Refresh campaign metrics from Instantly.ai API
   const refreshAllMetrics = async () => {
@@ -2302,20 +2335,511 @@ function CampaignsView({
         )}
       </div>
 
-      {/* Create Campaign Modal (placeholder for now) */}
+      {/* Create Campaign Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="glass-card p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold mb-4">Create New Campaign</h2>
-            <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
-              Campaign creation modal coming soon...
-            </p>
-            <button
-              onClick={() => setShowCreateModal(false)}
-              className="nexli-btn-gradient px-4 py-2 rounded-xl w-full"
-            >
-              Close
-            </button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="glass-card p-6 max-w-3xl w-full my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold font-display">Create Campaign</h2>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-2 rounded-lg transition-all"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Campaign Name */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                  Campaign Name
+                </label>
+                <input
+                  type="text"
+                  value={campaignName}
+                  onChange={(e) => setCampaignName(e.target.value)}
+                  placeholder="e.g., Q1 Tax Season Outreach"
+                  className="w-full rounded-xl px-4 py-3 outline-none text-sm"
+                  style={{
+                    background: 'var(--bg-input)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                />
+              </div>
+
+              {/* Template Selection */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                  Email Template (Feature 2)
+                </label>
+                <select
+                  value={selectedTemplate}
+                  onChange={(e) => setSelectedTemplate(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 outline-none text-sm"
+                  style={{
+                    background: 'var(--bg-input)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                >
+                  <option value="">Custom Email (No Template)</option>
+                  {emailTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name} - {template.subject}
+                    </option>
+                  ))}
+                </select>
+                {selectedTemplate && (
+                  <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                    Variables will be filled automatically: {emailTemplates.find(t => t.id === selectedTemplate)?.variables.join(', ')}
+                  </p>
+                )}
+              </div>
+
+              {/* Lead Selection */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                  Select Leads ({selectedLeadsForCampaign.length} selected)
+                </label>
+                <div className="max-h-48 overflow-y-auto rounded-xl p-3 space-y-2" style={{ background: 'var(--bg-elevated)' }}>
+                  <label className="flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-black/5">
+                    <input
+                      type="checkbox"
+                      checked={selectedLeadsForCampaign.length === allLeads.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedLeadsForCampaign(allLeads.map(l => l.id));
+                        } else {
+                          setSelectedLeadsForCampaign([]);
+                        }
+                      }}
+                      className="w-4 h-4 rounded"
+                      style={{ accentColor: 'var(--gradient-start)' }}
+                    />
+                    <span className="text-sm font-bold">Select All ({allLeads.length} leads)</span>
+                  </label>
+                  {allLeads.slice(0, 20).map((lead) => (
+                    <label key={lead.id} className="flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-black/5">
+                      <input
+                        type="checkbox"
+                        checked={selectedLeadsForCampaign.includes(lead.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedLeadsForCampaign([...selectedLeadsForCampaign, lead.id]);
+                          } else {
+                            setSelectedLeadsForCampaign(selectedLeadsForCampaign.filter(id => id !== lead.id));
+                          }
+                        }}
+                        className="w-4 h-4 rounded"
+                        style={{ accentColor: 'var(--gradient-start)' }}
+                      />
+                      <span className="text-sm">{lead.name} ({lead.email})</span>
+                    </label>
+                  ))}
+                  {allLeads.length > 20 && (
+                    <p className="text-xs text-center py-2" style={{ color: 'var(--text-muted)' }}>
+                      + {allLeads.length - 20} more leads (use Select All)
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* A/B Testing (Feature 7) */}
+              <div className="p-4 rounded-xl" style={{ background: 'var(--bg-elevated)' }}>
+                <label className="flex items-center gap-3 mb-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enableABTest}
+                    onChange={(e) => setEnableABTest(e.target.checked)}
+                    className="w-4 h-4 rounded"
+                    style={{ accentColor: 'var(--gradient-start)' }}
+                  />
+                  <div>
+                    <span className="text-sm font-bold">Enable A/B Testing (Feature 7)</span>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      Test 2 subject lines to optimize open rates
+                    </p>
+                  </div>
+                </label>
+                {enableABTest && (
+                  <div className="space-y-3 mt-4 pl-7">
+                    <input
+                      type="text"
+                      value={abVariantA}
+                      onChange={(e) => setAbVariantA(e.target.value)}
+                      placeholder="Subject Line A"
+                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                      style={{ background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                    />
+                    <input
+                      type="text"
+                      value={abVariantB}
+                      onChange={(e) => setAbVariantB(e.target.value)}
+                      placeholder="Subject Line B"
+                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                      style={{ background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                    />
+                    <div>
+                      <label className="text-xs font-bold mb-2 block">Test Size: {abTestSize}%</label>
+                      <input
+                        type="range"
+                        min="10"
+                        max="50"
+                        value={abTestSize}
+                        onChange={(e) => setAbTestSize(Number(e.target.value))}
+                        className="w-full"
+                      />
+                      <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                        Send to {abTestSize}% ({Math.round(selectedLeadsForCampaign.length * abTestSize / 100)} leads), then send winner to remaining {100 - abTestSize}%
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Scheduled Sending (Feature 8) */}
+              <div className="p-4 rounded-xl" style={{ background: 'var(--bg-elevated)' }}>
+                <label className="flex items-center gap-3 mb-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enableScheduled}
+                    onChange={(e) => setEnableScheduled(e.target.checked)}
+                    className="w-4 h-4 rounded"
+                    style={{ accentColor: 'var(--gradient-start)' }}
+                  />
+                  <div>
+                    <span className="text-sm font-bold flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      Schedule Send (Feature 8)
+                    </span>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      Send campaign at a specific date and time
+                    </p>
+                  </div>
+                </label>
+                {enableScheduled && (
+                  <div className="space-y-3 mt-4 pl-7">
+                    <input
+                      type="datetime-local"
+                      value={scheduledDateTime}
+                      onChange={(e) => setScheduledDateTime(e.target.value)}
+                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                      style={{ background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                    />
+                    <select
+                      value={scheduledTimezone}
+                      onChange={(e) => setScheduledTimezone(e.target.value)}
+                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                      style={{ background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="PST">Pacific Time (PST)</option>
+                      <option value="MST">Mountain Time (MST)</option>
+                      <option value="CST">Central Time (CST)</option>
+                      <option value="EST">Eastern Time (EST)</option>
+                    </select>
+                    {scheduledDateTime && (
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        Scheduled: {new Date(scheduledDateTime).toLocaleString()} {scheduledTimezone}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Follow-Up Sequences (Feature 6) */}
+              <div className="p-4 rounded-xl" style={{ background: 'var(--bg-elevated)' }}>
+                <label className="flex items-center gap-3 mb-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enableFollowUp}
+                    onChange={(e) => setEnableFollowUp(e.target.checked)}
+                    className="w-4 h-4 rounded"
+                    style={{ accentColor: 'var(--gradient-start)' }}
+                  />
+                  <div>
+                    <span className="text-sm font-bold">Auto Follow-Up Sequence (Feature 6)</span>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      Automatically send follow-ups based on conditions
+                    </p>
+                  </div>
+                </label>
+                {enableFollowUp && (
+                  <div className="space-y-3 mt-4 pl-7">
+                    <button
+                      onClick={() => setFollowUpSteps([...followUpSteps, {
+                        delayDays: 3,
+                        condition: 'no_reply',
+                        subject: 'Following up on my previous email',
+                        body: 'Hi {{firstName}},\n\nJust wanted to follow up on my last email...'
+                      }])}
+                      className="px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2"
+                      style={{ background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add Follow-Up Step
+                    </button>
+                    {followUpSteps.map((step, idx) => (
+                      <div key={idx} className="p-3 rounded-lg space-y-2" style={{ background: 'var(--bg-input)' }}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold">Follow-up #{idx + 1}</span>
+                          <button
+                            onClick={() => setFollowUpSteps(followUpSteps.filter((_, i) => i !== idx))}
+                            className="p-1 rounded"
+                            style={{ color: 'var(--status-failed-text)' }}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="number"
+                            value={step.delayDays}
+                            onChange={(e) => {
+                              const updated = [...followUpSteps];
+                              updated[idx].delayDays = Number(e.target.value);
+                              setFollowUpSteps(updated);
+                            }}
+                            placeholder="Days"
+                            className="rounded px-2 py-1 text-xs outline-none"
+                            style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+                          />
+                          <select
+                            value={step.condition}
+                            onChange={(e) => {
+                              const updated = [...followUpSteps];
+                              updated[idx].condition = e.target.value as any;
+                              setFollowUpSteps(updated);
+                            }}
+                            className="rounded px-2 py-1 text-xs outline-none"
+                            style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+                          >
+                            <option value="no_reply">If No Reply</option>
+                            <option value="no_open">If Not Opened</option>
+                            <option value="always">Always Send</option>
+                          </select>
+                        </div>
+                        <input
+                          type="text"
+                          value={step.subject}
+                          onChange={(e) => {
+                            const updated = [...followUpSteps];
+                            updated[idx].subject = e.target.value;
+                            setFollowUpSteps(updated);
+                          }}
+                          placeholder="Follow-up subject"
+                          className="w-full rounded px-2 py-1 text-xs outline-none"
+                          style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 pt-4">
+                <button
+                  onClick={() => {
+                    if (selectedLeadsForCampaign.length === 0) {
+                      alert('Please select at least one lead');
+                      return;
+                    }
+                    setShowPreview(true);
+                  }}
+                  disabled={selectedLeadsForCampaign.length === 0}
+                  className="flex-1 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                >
+                  <Eye className="w-4 h-4" />
+                  Preview Emails (Feature 5)
+                </button>
+                <button
+                  onClick={() => {
+                    if (!campaignName || selectedLeadsForCampaign.length === 0) {
+                      alert('Please fill in campaign name and select leads');
+                      return;
+                    }
+
+                    // Create campaign
+                    const newCampaign: Campaign = {
+                      id: `campaign-${Date.now()}`,
+                      name: campaignName,
+                      createdAt: new Date().toISOString(),
+                      status: enableScheduled ? 'scheduled' : 'draft',
+                      leadIds: selectedLeadsForCampaign,
+                      senderName: 'Your Name',
+                      senderEmail: 'you@example.com',
+                      metrics: {
+                        total: selectedLeadsForCampaign.length,
+                        sent: 0,
+                        delivered: 0,
+                        opened: 0,
+                        clicked: 0,
+                        replied: 0,
+                        bounced: 0,
+                      },
+                      followUpSequence: enableFollowUp ? { steps: followUpSteps } : undefined,
+                      abTest: enableABTest ? {
+                        variantA: { subject: abVariantA, recipientCount: 0, opens: 0 },
+                        variantB: { subject: abVariantB, recipientCount: 0, opens: 0 },
+                        testSize: abTestSize,
+                      } : undefined,
+                      scheduledSend: enableScheduled ? {
+                        scheduledFor: scheduledDateTime,
+                        timezone: scheduledTimezone,
+                      } : undefined,
+                    };
+
+                    setCampaigns([...campaigns, newCampaign]);
+                    if (enableScheduled) {
+                      setScheduledCampaigns([...scheduledCampaigns, newCampaign.id]);
+                    }
+
+                    // Reset form
+                    setCampaignName('');
+                    setSelectedTemplate('');
+                    setSelectedLeadsForCampaign([]);
+                    setEnableABTest(false);
+                    setEnableScheduled(false);
+                    setEnableFollowUp(false);
+                    setFollowUpSteps([]);
+                    setShowCreateModal(false);
+
+                    addNotification('success', 'Campaign Created', `"${campaignName}" is ready!`, 'campaign');
+                  }}
+                  disabled={!campaignName || selectedLeadsForCampaign.length === 0}
+                  className="flex-1 nexli-btn-gradient px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
+                >
+                  <Send className="w-4 h-4" />
+                  Create Campaign
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Preview Modal (Feature 5) */}
+      {showPreview && selectedLeadsForCampaign.length > 0 && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="glass-card p-6 max-w-2xl w-full">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold font-display">Email Preview</h2>
+              <button
+                onClick={() => setShowPreview(false)}
+                className="p-2 rounded-lg transition-all"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Preview Navigation */}
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => setPreviewIndex(Math.max(0, previewIndex - 1))}
+                  disabled={previewIndex === 0}
+                  className="p-2 rounded-lg transition-all disabled:opacity-30"
+                  style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <span className="text-sm font-bold">
+                  Preview {previewIndex + 1} of {Math.min(5, selectedLeadsForCampaign.length)}
+                </span>
+                <button
+                  onClick={() => setPreviewIndex(Math.min(Math.min(4, selectedLeadsForCampaign.length - 1), previewIndex + 1))}
+                  disabled={previewIndex >= Math.min(4, selectedLeadsForCampaign.length - 1)}
+                  className="p-2 rounded-lg transition-all disabled:opacity-30"
+                  style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+
+              {(() => {
+                const lead = allLeads.find(l => l.id === selectedLeadsForCampaign[previewIndex]);
+                if (!lead) return null;
+
+                const template = selectedTemplate ? emailTemplates.find(t => t.id === selectedTemplate) : null;
+                const email = template ? fillTemplate(template, lead) : {
+                  subject: enableABTest ? (previewIndex % 2 === 0 ? abVariantA : abVariantB) : 'Your Email Subject',
+                  body: 'Your email body here...'
+                };
+
+                return (
+                  <div className="space-y-4">
+                    {/* Lead Info */}
+                    <div className="p-4 rounded-xl" style={{ background: 'var(--bg-elevated)' }}>
+                      <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
+                        Recipient
+                      </p>
+                      <p className="font-bold">{lead.name}</p>
+                      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{lead.email}</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                        {lead.role} at {lead.company}
+                      </p>
+                    </div>
+
+                    {/* Email Preview */}
+                    <div className="p-4 rounded-xl space-y-3" style={{ background: 'var(--bg-elevated)' }}>
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                          Subject
+                        </p>
+                        <p className="font-bold">{email.subject}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                          Body
+                        </p>
+                        <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>
+                          {email.body}
+                        </p>
+                      </div>
+                    </div>
+
+                    {enableABTest && (
+                      <div className="p-3 rounded-lg text-center text-xs" style={{ background: 'var(--status-pending-bg)', color: 'var(--status-pending-text)' }}>
+                        This lead will receive: <strong>{previewIndex % 2 === 0 ? 'Variant A' : 'Variant B'}</strong>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 pt-4">
+                <button
+                  onClick={() => setShowPreview(false)}
+                  className="flex-1 px-6 py-3 rounded-xl font-bold"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  Close Preview
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPreview(false);
+                    // User can now proceed to create the campaign
+                  }}
+                  className="flex-1 nexli-btn-gradient px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Looks Good!
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -3095,6 +3619,10 @@ export default function App() {
                   emailLogs={emailLogs}
                   setEmailLogs={setEmailLogs}
                   allLeads={allLeads}
+                  emailTemplates={emailTemplates}
+                  scheduledCampaigns={scheduledCampaigns}
+                  setScheduledCampaigns={setScheduledCampaigns}
+                  addNotification={addNotification}
                 />
               )}
               {activeTab === 'settings' && (
