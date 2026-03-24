@@ -1572,6 +1572,18 @@ const ScraperView = ({
   const [sortBy, setSortBy] = useState<'score' | 'name' | 'company'>('score');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
+  // Decision Maker Filters (NEW)
+  const [decisionMakersOnly, setDecisionMakersOnly] = useState(true);
+  const [maxCompanySize, setMaxCompanySize] = useState<number>(50); // Max employees (CPA firms only)
+  const [includedTitles] = useState([
+    'owner', 'co-owner', 'founder', 'co-founder', 'managing partner', 'partner',
+    'principal', 'ceo', 'president', 'managing director', 'director'
+  ]);
+  const [excludedTitles] = useState([
+    'staff accountant', 'senior accountant', 'associate', 'junior', 'analyst',
+    'specialist', 'coordinator', 'assistant', 'bookkeeper', 'controller'
+  ]);
+
   const US_STATES = [
     'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
     'Delaware', 'District of Columbia', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois',
@@ -1673,20 +1685,37 @@ const ScraperView = ({
 
   // Build Apify filters from user query + settings
   const buildFilters = () => {
+    // Dynamic company size filter based on maxCompanySize
+    const companySizeFilters = [];
+    if (maxCompanySize >= 10) companySizeFilters.push('1-10');
+    if (maxCompanySize >= 20) companySizeFilters.push('11-20');
+    if (maxCompanySize >= 50) companySizeFilters.push('21-50');
+    if (maxCompanySize >= 100) companySizeFilters.push('51-100');
+    if (maxCompanySize >= 500) companySizeFilters.push('101-500');
+
     const filters: any = {
       totalResults,
       emailStatus: emailStatusFilter,
       hasEmail: true,
       companyIndustryIncludes: ['Accounting'],
       companyLocationCountryIncludes: ['United States'],
-      companyEmployeeSizeIncludes: ['1-10', '11-20', '21-50'],
-      seniorityIncludes: ['C-Suite', 'VP', 'Director', 'Manager', 'Owner', 'Founder', 'Partner'],
+      companyEmployeeSizeIncludes: companySizeFilters.length > 0 ? companySizeFilters : ['1-10', '11-20', '21-50'],
+      seniorityIncludes: ['C-Suite', 'VP', 'Director', 'Owner', 'Founder', 'Partner'],
       personFunctionIncludes: ['Accounting', 'Finance'],
     };
 
+    // Enhanced query for decision makers
+    let searchQuery = query;
+    if (decisionMakersOnly && query) {
+      // Append "owner" or "managing partner" to target decision makers
+      const decisionMakerKeywords = ['owner', 'managing partner', 'founder'];
+      const randomKeyword = decisionMakerKeywords[Math.floor(Math.random() * decisionMakerKeywords.length)];
+      searchQuery = `${query} ${randomKeyword}`;
+    }
+
     // Parse the query for keywords
-    if (query) {
-      filters.companyKeywordIncludes = query.split(',').map((k: string) => k.trim()).filter(Boolean);
+    if (searchQuery) {
+      filters.companyKeywordIncludes = searchQuery.split(',').map((k: string) => k.trim()).filter(Boolean);
     }
 
     // State filter
@@ -1800,8 +1829,30 @@ const ScraperView = ({
         })
       );
 
-      setResults(leadsWithWebsites);
-      onLeadsFound(leadsWithWebsites);
+      // Filter for decision makers only (title filtering)
+      setScrapingStep('Filtering decision makers...');
+      const filteredLeads = leadsWithWebsites.filter((lead) => {
+        const role = lead.role.toLowerCase();
+
+        // Check if title contains any excluded keywords
+        const hasExcludedTitle = excludedTitles.some(excluded => role.includes(excluded));
+        if (hasExcludedTitle) {
+          return false; // Exclude this lead
+        }
+
+        // If decision makers only, check if title contains included keywords
+        if (decisionMakersOnly) {
+          const hasIncludedTitle = includedTitles.some(included => role.includes(included));
+          return hasIncludedTitle; // Only include if matches decision maker titles
+        }
+
+        return true; // Include all other leads
+      });
+
+      console.log(`Filtered ${leadsWithWebsites.length} leads → ${filteredLeads.length} decision makers`);
+
+      setResults(filteredLeads);
+      onLeadsFound(filteredLeads);
     } catch (err: any) {
       console.error('Scraping failed:', err);
       setError(err.message || 'Scraping failed. Check your API configuration.');
@@ -1949,6 +2000,109 @@ const ScraperView = ({
                 style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: 'none' }}
               />
             </div>
+          </div>
+
+          {/* Decision Maker Filters */}
+          <div
+            className="glass-card p-4 rounded-xl space-y-4"
+            style={{ border: '1px solid var(--border-color)' }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                  🎯 Decision Makers Only
+                </p>
+                <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  Filter for owners, partners, and C-suite executives
+                </p>
+              </div>
+              <button
+                onClick={() => setDecisionMakersOnly(!decisionMakersOnly)}
+                className={`relative w-12 h-6 rounded-full transition-all ${
+                  decisionMakersOnly ? 'nexli-gradient-bg' : ''
+                }`}
+                style={
+                  decisionMakersOnly
+                    ? {}
+                    : {
+                        background: 'var(--bg-elevated)',
+                        border: '2px solid var(--border-color)',
+                      }
+                }
+              >
+                <div
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                    decisionMakersOnly ? 'translate-x-6' : ''
+                  }`}
+                ></div>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                  Max Company Size
+                </label>
+                <select
+                  value={maxCompanySize}
+                  onChange={(e) => setMaxCompanySize(Number(e.target.value))}
+                  className="w-full rounded-xl px-3 py-2.5 text-sm font-medium outline-none cursor-pointer"
+                  style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: 'none' }}
+                >
+                  <option value={10}>1-10 employees (Micro)</option>
+                  <option value={20}>1-20 employees (Small)</option>
+                  <option value={50}>1-50 employees (Medium)</option>
+                  <option value={100}>1-100 employees (Large)</option>
+                  <option value={500}>1-500 employees (Enterprise)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                  Filter Summary
+                </label>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                    {decisionMakersOnly ? '✅ Owners & decision makers' : '⚠️ All roles'}
+                  </span>
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                    {maxCompanySize <= 50 ? '🏢 CPA firms only' : '🏭 Includes large corps'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Title Filters Info */}
+            <details className="text-xs">
+              <summary
+                className="cursor-pointer font-bold uppercase tracking-wider"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                View Title Filters
+              </summary>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <div>
+                  <p className="font-bold text-[10px] mb-1" style={{ color: 'var(--gradient-start)' }}>
+                    ✅ Included Titles:
+                  </p>
+                  <ul className="text-[10px] space-y-0.5" style={{ color: 'var(--text-muted)' }}>
+                    {includedTitles.slice(0, 6).map(title => (
+                      <li key={title}>• {title}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="font-bold text-[10px] mb-1" style={{ color: '#EF4444' }}>
+                    ❌ Excluded Titles:
+                  </p>
+                  <ul className="text-[10px] space-y-0.5" style={{ color: 'var(--text-muted)' }}>
+                    {excludedTitles.slice(0, 6).map(title => (
+                      <li key={title}>• {title}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </details>
           </div>
 
           {error && (
