@@ -1712,14 +1712,15 @@ const ScraperView = ({
       const startData = await startRes.json();
 
       if (startData.error) {
-        // Check for specific Apify errors
-        const errorMessage = typeof startData.error === 'string' ? startData.error : JSON.stringify(startData.error);
-        const errorType = startData.errorType;
+        console.log('API Error Response:', startData);
 
-        // Check if it's the rental error
-        if (errorType === 'actor-is-not-rented' || (typeof errorMessage === 'string' && errorMessage.includes('actor-is-not-rented'))) {
+        // Check for the errorType property first (most reliable)
+        if (startData.errorType === 'actor-is-not-rented') {
           throw new Error('⚠️ Apify Free Trial Expired\n\nThe lead scraping actor needs to be rented. Options:\n\n1. Rent the actor at https://console.apify.com/actors/VYRyEF4ygTTkaIghe\n2. Use a different free Apify actor\n3. Contact support for alternatives');
         }
+
+        // Safely convert error to string
+        const errorMessage = String(startData.error);
         throw new Error(errorMessage);
       }
 
