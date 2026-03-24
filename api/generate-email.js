@@ -1,12 +1,23 @@
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 module.exports = async function handler(req, res) {
+  // Debug logging
+  console.log('API Key exists:', !!ANTHROPIC_API_KEY);
+  console.log('API Key length:', ANTHROPIC_API_KEY?.length || 0);
+  console.log('All env vars:', Object.keys(process.env));
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   if (!ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+    return res.status(500).json({
+      error: 'ANTHROPIC_API_KEY not configured',
+      debug: {
+        envVars: Object.keys(process.env),
+        hasKey: !!ANTHROPIC_API_KEY
+      }
+    });
   }
 
   try {
