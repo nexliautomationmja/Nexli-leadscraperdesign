@@ -45,8 +45,8 @@ CRITICAL REQUIREMENTS:
   * Client confusion from multiple logins
 
 - Middle: Briefly present the possibility (NOT a pitch)
-  * "What if you could consolidate all of that into one quantum-resistant platform?"
-  * Mention 1-2 specific consolidation benefits: cost savings (50-70% reduction), time savings, or security
+  * "What if you could consolidate all of that into one military-grade secure platform?"
+  * Mention 1-2 specific consolidation benefits: cost savings (50-70% reduction), time savings, or military-grade security
   * DO NOT list features - focus on outcomes they care about
 
 - Close: Soft, consultative CTA
