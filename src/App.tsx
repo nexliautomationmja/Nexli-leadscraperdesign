@@ -1713,10 +1713,14 @@ const ScraperView = ({
 
       if (startData.error) {
         // Check for specific Apify errors
-        if (typeof startData.error === 'string' && startData.error.includes('actor-is-not-rented')) {
+        const errorMessage = typeof startData.error === 'string' ? startData.error : JSON.stringify(startData.error);
+        const errorType = startData.errorType;
+
+        // Check if it's the rental error
+        if (errorType === 'actor-is-not-rented' || (typeof errorMessage === 'string' && errorMessage.includes('actor-is-not-rented'))) {
           throw new Error('⚠️ Apify Free Trial Expired\n\nThe lead scraping actor needs to be rented. Options:\n\n1. Rent the actor at https://console.apify.com/actors/VYRyEF4ygTTkaIghe\n2. Use a different free Apify actor\n3. Contact support for alternatives');
         }
-        throw new Error(startData.error);
+        throw new Error(errorMessage);
       }
 
       // Step 2: Poll until complete
