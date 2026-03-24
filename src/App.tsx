@@ -80,6 +80,8 @@ interface Lead {
   country?: string;
   orgWebsite?: string;
   website?: string; // Company website URL (from Google search or manual entry)
+  googleRating?: number; // Google star rating (1-5)
+  googleReviewCount?: number; // Number of Google reviews
   orgSize?: string;
   orgIndustry?: string;
   seniority?: string;
@@ -210,9 +212,10 @@ function getScoreTier(score: number): { label: string; color: string; bg: string
 
 // --- CSV Export ---
 function exportLeadsToCSV(leads: Lead[]) {
-  const headers = ['Name', 'Email', 'Company', 'Role', 'Status', 'Score', 'LinkedIn', 'Phone', 'City', 'State', 'Country', 'Website', 'Company Size', 'Industry'];
+  const headers = ['Name', 'Email', 'Company', 'Role', 'Status', 'Score', 'Google Rating', 'Review Count', 'LinkedIn', 'Phone', 'City', 'State', 'Country', 'Website', 'Company Size', 'Industry'];
   const rows = leads.map((l) => [
     l.name, l.email, l.company, l.role, l.status, l.score,
+    l.googleRating || '', l.googleReviewCount || '',
     l.linkedin, l.phone || '', l.city || '', l.state || '', l.country || '',
     l.website || l.orgWebsite || '', l.orgSize || '', l.orgIndustry || '',
   ]);
@@ -286,6 +289,41 @@ async function lookupWebsite(companyName: string, city?: string, state?: string)
   }
 }
 
+// Look up Google rating and review count using Google Places API
+async function lookupGoogleRating(companyName: string, city?: string, state?: string): Promise<{ rating: number; reviewCount: number } | null> {
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+
+  if (!apiKey) {
+    console.warn('Google Maps API key not configured');
+    return null;
+  }
+
+  try {
+    // Build search query: "Company Name City State"
+    const query = [companyName, city, state].filter(Boolean).join(' ');
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${apiKey}`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status === 'OK' && data.results && data.results.length > 0) {
+      const place = data.results[0];
+      const rating = place.rating || null;
+      const reviewCount = place.user_ratings_total || 0;
+
+      if (rating) {
+        console.log(`Found rating for ${companyName}: ${rating}⭐ (${reviewCount} reviews)`);
+        return { rating, reviewCount };
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error looking up Google rating:', error);
+    return null;
+  }
+}
+
 // Batch process website lookups to avoid rate limits and timeouts
 async function batchLookupWebsites<T extends { company?: string; city?: string; state?: string; orgWebsite?: string; website?: string }>(
   leads: T[],
@@ -331,32 +369,58 @@ async function batchLookupWebsites<T extends { company?: string; city?: string; 
   return results;
 }
 
-// Background website enrichment with progress tracking
-async function enrichWebsitesInBackground<T extends { company?: string; city?: string; state?: string; orgWebsite?: string; website?: string }>(
+// Background enrichment for websites AND ratings with progress tracking
+async function enrichDataInBackground<T extends {
+  company?: string;
+  city?: string;
+  state?: string;
+  orgWebsite?: string;
+  website?: string;
+  googleRating?: number;
+  googleReviewCount?: number;
+}>(
   leads: T[],
-  onProgress: (current: number, total: number) => void,
+  options: {
+    enrichWebsites: boolean;
+    enrichRatings: boolean;
+    onProgress: (websites: { current: number; total: number }, ratings: { current: number; total: number }) => void;
+  },
   batchSize: number = 5,
   delayMs: number = 500
 ): Promise<T[]> {
   const results = [...leads];
 
   // Find leads that need website lookup
-  const needsLookup = leads
-    .map((lead, index) => ({ lead, index }))
-    .filter(({ lead }) => !lead.orgWebsite && lead.company && (lead.city || lead.state));
+  const needsWebsite = options.enrichWebsites
+    ? leads.map((lead, index) => ({ lead, index })).filter(({ lead }) => !lead.orgWebsite && !lead.website && lead.company && (lead.city || lead.state))
+    : [];
 
-  console.log(`Background enrichment: ${needsLookup.length} websites to find...`);
-  onProgress(0, needsLookup.length);
+  // Find leads that need rating lookup
+  const needsRating = options.enrichRatings
+    ? leads.map((lead, index) => ({ lead, index })).filter(({ lead }) => !lead.googleRating && lead.company && (lead.city || lead.state))
+    : [];
 
-  let completed = 0;
+  console.log(`Background enrichment: ${needsWebsite.length} websites, ${needsRating.length} ratings to find...`);
 
-  // Process in batches
-  for (let i = 0; i < needsLookup.length; i += batchSize) {
-    const batch = needsLookup.slice(i, i + batchSize);
+  let websiteCompleted = 0;
+  let ratingCompleted = 0;
 
-    // Process batch in parallel
-    await Promise.all(
-      batch.map(async ({ lead, index }) => {
+  options.onProgress(
+    { current: 0, total: needsWebsite.length },
+    { current: 0, total: needsRating.length }
+  );
+
+  // Process websites and ratings in parallel batches
+  const maxItems = Math.max(needsWebsite.length, needsRating.length);
+
+  for (let i = 0; i < maxItems; i += batchSize) {
+    const websiteBatch = needsWebsite.slice(i, i + batchSize);
+    const ratingBatch = needsRating.slice(i, i + batchSize);
+
+    // Process both batches in parallel
+    await Promise.all([
+      // Website lookups
+      ...websiteBatch.map(async ({ lead, index }) => {
         try {
           const website = await lookupWebsite(lead.company!, lead.city, lead.state);
           if (website) {
@@ -365,13 +429,33 @@ async function enrichWebsitesInBackground<T extends { company?: string; city?: s
         } catch (error) {
           console.error(`Failed to lookup website for ${lead.company}:`, error);
         }
-        completed++;
-        onProgress(completed, needsLookup.length);
+        websiteCompleted++;
+        options.onProgress(
+          { current: websiteCompleted, total: needsWebsite.length },
+          { current: ratingCompleted, total: needsRating.length }
+        );
+      }),
+      // Rating lookups
+      ...ratingBatch.map(async ({ lead, index }) => {
+        try {
+          const ratingData = await lookupGoogleRating(lead.company!, lead.city, lead.state);
+          if (ratingData) {
+            results[index].googleRating = ratingData.rating;
+            results[index].googleReviewCount = ratingData.reviewCount;
+          }
+        } catch (error) {
+          console.error(`Failed to lookup rating for ${lead.company}:`, error);
+        }
+        ratingCompleted++;
+        options.onProgress(
+          { current: websiteCompleted, total: needsWebsite.length },
+          { current: ratingCompleted, total: needsRating.length }
+        );
       })
-    );
+    ]);
 
     // Delay between batches to respect rate limits
-    if (i + batchSize < needsLookup.length) {
+    if (i + batchSize < maxItems) {
       await new Promise(r => setTimeout(r, delayMs));
     }
   }
@@ -2092,7 +2176,12 @@ const ScraperView = ({
 
   // Website enrichment state
   const [enrichWebsites, setEnrichWebsites] = useState(true);
-  const [enrichmentProgress, setEnrichmentProgress] = useState({ current: 0, total: 0, isEnriching: false });
+  const [enrichRatings, setEnrichRatings] = useState(true);
+  const [enrichmentProgress, setEnrichmentProgress] = useState({
+    websites: { current: 0, total: 0 },
+    ratings: { current: 0, total: 0 },
+    isEnriching: false
+  });
 
   // Email generation state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -2367,24 +2456,57 @@ const ScraperView = ({
         }
       });
 
-      let leadsWithWebsites = mapped;
+      let enrichedLeads = mapped;
 
-      // Conditionally enrich websites based on settings
-      if (enrichWebsites && totalResults <= 100) {
+      // Conditionally enrich data based on settings
+      if ((enrichWebsites || enrichRatings) && totalResults <= 100) {
         // For small batches (≤100), enrich immediately
-        setScrapingStep('Finding company websites (batched)...');
-        leadsWithWebsites = await batchLookupWebsites(mapped, 5, 500);
-      } else if (!enrichWebsites) {
+        const tasks = [];
+        if (enrichWebsites) tasks.push('websites');
+        if (enrichRatings) tasks.push('ratings');
+        setScrapingStep(`Finding ${tasks.join(' and ')} (batched)...`);
+
+        enrichedLeads = await batchLookupWebsites(mapped, 5, 500);
+
+        // Also lookup ratings if enabled
+        if (enrichRatings) {
+          setScrapingStep('Finding Google ratings (batched)...');
+          const needsRating = enrichedLeads.filter((l: Lead) => !l.googleRating && l.company && (l.city || l.state));
+          let ratingCount = 0;
+
+          for (let i = 0; i < needsRating.length; i += 5) {
+            const batch = needsRating.slice(i, i + 5);
+            await Promise.all(
+              batch.map(async (lead: Lead) => {
+                try {
+                  const ratingData = await lookupGoogleRating(lead.company!, lead.city, lead.state);
+                  if (ratingData) {
+                    lead.googleRating = ratingData.rating;
+                    lead.googleReviewCount = ratingData.reviewCount;
+                    ratingCount++;
+                  }
+                } catch (error) {
+                  console.error(`Failed to lookup rating for ${lead.company}:`, error);
+                }
+              })
+            );
+            if (i + 5 < needsRating.length) {
+              await new Promise(r => setTimeout(r, 500));
+            }
+          }
+          console.log(`Found ${ratingCount} Google ratings for ${needsRating.length} leads`);
+        }
+      } else if (!enrichWebsites && !enrichRatings) {
         // Skip enrichment entirely
-        console.log(`Website enrichment disabled. Using orgWebsite data only (${mapped.filter((l: Lead) => l.website).length}/${mapped.length} have websites).`);
+        console.log(`All enrichment disabled. Using Apify data only.`);
       } else {
         // For large batches (>100), show results immediately and enrich in background
-        console.log(`Large batch detected (${totalResults} leads). Showing results immediately. Website enrichment will run in background.`);
+        console.log(`Large batch detected (${totalResults} leads). Showing results immediately. Enrichment will run in background.`);
       }
 
       // Filter for decision makers only (title filtering)
       setScrapingStep('Filtering decision makers...');
-      const filteredLeads = leadsWithWebsites.filter((lead: Lead) => {
+      const filteredLeads = enrichedLeads.filter((lead: Lead) => {
         const role = lead.role.toLowerCase();
 
         // Check if title contains any excluded keywords
@@ -2402,13 +2524,13 @@ const ScraperView = ({
         return true; // Include all other leads
       });
 
-      console.log(`Filtered ${leadsWithWebsites.length} leads → ${filteredLeads.length} decision makers`);
+      console.log(`Filtered ${enrichedLeads.length} leads → ${filteredLeads.length} decision makers`);
 
       setResults(filteredLeads);
       onLeadsFound(filteredLeads);
 
       // Start background enrichment for large batches
-      if (enrichWebsites && totalResults > 100) {
+      if ((enrichWebsites || enrichRatings) && totalResults > 100) {
         startBackgroundEnrichment(filteredLeads);
       }
     } catch (err: any) {
@@ -2422,13 +2544,25 @@ const ScraperView = ({
 
   // Background enrichment handler
   const startBackgroundEnrichment = async (leads: Lead[]) => {
-    setEnrichmentProgress({ current: 0, total: 0, isEnriching: true });
+    setEnrichmentProgress({
+      websites: { current: 0, total: 0 },
+      ratings: { current: 0, total: 0 },
+      isEnriching: true
+    });
 
     try {
-      const enriched = await enrichWebsitesInBackground(
+      const enriched = await enrichDataInBackground(
         leads,
-        (current, total) => {
-          setEnrichmentProgress({ current, total, isEnriching: true });
+        {
+          enrichWebsites: enrichWebsites,
+          enrichRatings: enrichRatings,
+          onProgress: (websites, ratings) => {
+            setEnrichmentProgress({
+              websites,
+              ratings,
+              isEnriching: true
+            });
+          }
         },
         5, // batch size
         500 // delay between batches
@@ -2438,11 +2572,17 @@ const ScraperView = ({
       setResults(enriched);
       onLeadsFound(enriched);
 
-      console.log(`Background enrichment complete! Updated ${enriched.filter(l => l.website).length}/${enriched.length} leads with websites.`);
+      const websiteCount = enriched.filter(l => l.website).length;
+      const ratingCount = enriched.filter(l => l.googleRating).length;
+      console.log(`Background enrichment complete! ${websiteCount}/${enriched.length} websites, ${ratingCount}/${enriched.length} ratings found.`);
     } catch (error) {
       console.error('Background enrichment failed:', error);
     } finally {
-      setEnrichmentProgress({ current: 0, total: 0, isEnriching: false });
+      setEnrichmentProgress({
+        websites: { current: 0, total: 0 },
+        ratings: { current: 0, total: 0 },
+        isEnriching: false
+      });
     }
   };
 
@@ -2625,6 +2765,45 @@ const ScraperView = ({
             </div>
           </div>
 
+          {/* Google Ratings Enrichment Toggle */}
+          <div
+            className="glass-card p-4 rounded-xl"
+            style={{ border: '1px solid var(--border-color)' }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                  ⭐ Enrich Google Ratings
+                </p>
+                <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {totalResults > 100
+                    ? `Auto-disabled for ${totalResults.toLocaleString()}+ leads. Ratings will enrich in background.`
+                    : 'Pull star ratings and review counts from Google Maps (adds ~30-60s for 100 leads)'
+                  }
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer ml-4">
+                <input
+                  type="checkbox"
+                  checked={enrichRatings}
+                  onChange={(e) => setEnrichRatings(e.target.checked)}
+                  disabled={totalResults > 100}
+                  className="sr-only peer"
+                />
+                <div className={`w-11 h-6 rounded-full peer transition-all ${totalResults > 100 ? 'opacity-50 cursor-not-allowed' : ''}`} style={{
+                  background: enrichRatings ? 'var(--nexli-primary)' : 'var(--bg-input)',
+                }}>
+                  <div
+                    className="absolute top-[2px] left-[2px] bg-white rounded-full h-5 w-5 transition-all"
+                    style={{
+                      transform: enrichRatings ? 'translateX(20px)' : 'translateX(0)',
+                    }}
+                  />
+                </div>
+              </label>
+            </div>
+          </div>
+
           {/* Decision Maker Filters */}
           <div
             className="glass-card p-4 rounded-xl space-y-4"
@@ -2771,26 +2950,43 @@ const ScraperView = ({
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="glass-card p-4 rounded-xl flex items-center justify-between mb-4"
+                className="glass-card p-4 rounded-xl mb-4"
                 style={{ background: 'var(--nexli-primary-light)', border: '1px solid var(--nexli-primary)' }}
               >
-                <div className="flex items-center gap-3">
-                  <div className="animate-spin">
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="var(--nexli-primary)" strokeWidth="3" strokeLinecap="round" strokeDasharray="60" strokeDashoffset="30" />
-                    </svg>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="animate-spin">
+                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="var(--nexli-primary)" strokeWidth="3" strokeLinecap="round" strokeDasharray="60" strokeDashoffset="30" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                        Enriching data in background...
+                      </p>
+                      <div className="flex gap-4 mt-1">
+                        {enrichWebsites && enrichmentProgress.websites.total > 0 && (
+                          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                            🌐 Websites: {enrichmentProgress.websites.current}/{enrichmentProgress.websites.total}
+                          </p>
+                        )}
+                        {enrichRatings && enrichmentProgress.ratings.total > 0 && (
+                          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                            ⭐ Ratings: {enrichmentProgress.ratings.current}/{enrichmentProgress.ratings.total}
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                      🌐 Enriching company websites in background...
-                    </p>
-                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {enrichmentProgress.current} of {enrichmentProgress.total} websites found
-                    </p>
+                  <div className="text-sm font-bold" style={{ color: 'var(--nexli-primary)' }}>
+                    {(() => {
+                      const websiteTotal = enrichmentProgress.websites.total || 0;
+                      const ratingTotal = enrichmentProgress.ratings.total || 0;
+                      const total = websiteTotal + ratingTotal;
+                      const completed = enrichmentProgress.websites.current + enrichmentProgress.ratings.current;
+                      return total > 0 ? Math.round((completed / total) * 100) : 0;
+                    })()}%
                   </div>
-                </div>
-                <div className="text-sm font-bold" style={{ color: 'var(--nexli-primary)' }}>
-                  {enrichmentProgress.total > 0 ? Math.round((enrichmentProgress.current / enrichmentProgress.total) * 100) : 0}%
                 </div>
               </motion.div>
             )}
@@ -2877,6 +3073,7 @@ const ScraperView = ({
                   <th className="px-5 py-3.5">Lead</th>
                   <th className="px-5 py-3.5">Email Status</th>
                   <th className="px-5 py-3.5">Score</th>
+                  <th className="px-5 py-3.5">Rating</th>
                   <th className="px-5 py-3.5">Company</th>
                   <th className="px-5 py-3.5">LinkedIn</th>
                   <th className="px-5 py-3.5"></th>
@@ -2945,6 +3142,27 @@ const ScraperView = ({
                     </td>
                     <td className="px-5 py-4">
                       <ScoreBadge score={lead.score} />
+                    </td>
+                    <td className="px-5 py-4">
+                      {lead.googleRating ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-bold" style={{
+                            color: lead.googleRating >= 4.5 ? '#10B981' :
+                                   lead.googleRating >= 3.5 ? '#F59E0B' : '#EF4444'
+                          }}>
+                            ⭐ {lead.googleRating.toFixed(1)}
+                          </span>
+                          {lead.googleReviewCount && lead.googleReviewCount > 0 && (
+                            <span className="text-[10px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                              ({lead.googleReviewCount})
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                          No rating
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
