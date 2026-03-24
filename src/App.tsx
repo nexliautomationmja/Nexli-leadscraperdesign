@@ -1163,12 +1163,98 @@ const Sidebar = ({
         </div>
       </div>
 
+      {/* Profile Section */}
+      <div
+        className="p-4 rounded-2xl transition-colors duration-300"
+        style={{
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border-color)',
+        }}
+      >
+        <p className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>
+          Profile
+        </p>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            {userProfile?.profile_photo_url ? (
+              <img
+                src={userProfile.profile_photo_url}
+                alt="Profile"
+                className="w-12 h-12 rounded-full object-cover border-2"
+                style={{ borderColor: 'var(--border-color)' }}
+              />
+            ) : (
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold text-white"
+                style={{ background: 'linear-gradient(135deg, #2563EB, #06B6D4)' }}
+              >
+                {userProfile?.full_name?.charAt(0) || user?.email?.charAt(0)?.toUpperCase() || 'U'}
+              </div>
+            )}
+            <label
+              htmlFor="sidebar-profile-photo-upload"
+              className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full nexli-gradient-bg flex items-center justify-center cursor-pointer hover:scale-110 transition-transform shadow-lg border-2"
+              style={{ borderColor: 'var(--bg-elevated)' }}
+            >
+              <Camera className="w-3 h-3 text-white" />
+            </label>
+            <input
+              id="sidebar-profile-photo-upload"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file || !user) return;
+
+                try {
+                  const fileExt = file.name.split('.').pop();
+                  const filePath = `${user.id}/avatar.${fileExt}`;
+
+                  const { error: uploadError } = await supabase.storage
+                    .from('profile-photos')
+                    .upload(filePath, file, { upsert: true });
+
+                  if (uploadError) throw uploadError;
+
+                  const { data } = supabase.storage
+                    .from('profile-photos')
+                    .getPublicUrl(filePath);
+
+                  const { error: updateError } = await supabase
+                    .from('users')
+                    .update({ profile_photo_url: data.publicUrl })
+                    .eq('id', user.id);
+
+                  if (updateError) throw updateError;
+
+                  setUserProfile((prev) => prev ? { ...prev, profile_photo_url: data.publicUrl } : null);
+                  addNotification('success', 'Photo Updated', 'Profile photo uploaded successfully');
+                } catch (error: any) {
+                  addNotification('error', 'Upload Failed', error.message);
+                }
+
+                e.target.value = '';
+              }}
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold truncate" style={{ color: 'var(--text-primary)' }}>
+              {userProfile?.full_name || 'User'}
+            </p>
+            <p className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
+              {user?.email}
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="mt-auto pt-4 text-center">
         <p
           className="text-[10px] font-bold uppercase tracking-[0.2em]"
           style={{ color: 'var(--text-muted)' }}
         >
-          Powered by Nexli AI
+          Nexli Automation
         </p>
       </div>
     </aside>
