@@ -1006,6 +1006,8 @@ const Sidebar = ({
   setSidebarOpen,
   allLeads,
   campaigns,
+  userProfile,
+  user,
 }: {
   activeTab: string;
   setActiveTab: (t: string) => void;
@@ -1014,6 +1016,8 @@ const Sidebar = ({
   setSidebarOpen: (open: boolean) => void;
   allLeads: Lead[];
   campaigns: Campaign[];
+  userProfile: { full_name: string; profile_photo_url: string | null } | null;
+  user: any;
 }) => {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -4247,6 +4251,8 @@ export default function App() {
         setSidebarOpen={setSidebarOpen}
         allLeads={allLeads}
         campaigns={campaigns}
+        userProfile={userProfile}
+        user={user}
       />
 
       <main className="pt-16 md:pl-64 min-h-screen">
