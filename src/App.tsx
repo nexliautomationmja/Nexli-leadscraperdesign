@@ -3857,6 +3857,70 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Load user data from Supabase when user logs in
+  useEffect(() => {
+    if (!user) return;
+
+    const loadUserData = async () => {
+      try {
+        setLoading(true);
+
+        // Fetch user profile
+        const { data: profile } = await supabase
+          .from('users')
+          .select('full_name, profile_photo_url')
+          .eq('id', user.id)
+          .single();
+
+        if (profile) {
+          setUserProfile(profile);
+        }
+
+        // Fetch leads
+        const { data: leads, error: leadsError } = await supabase
+          .from('leads')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (leadsError) throw leadsError;
+
+        if (leads) {
+          // Map database fields to Lead interface
+          const mappedLeads: Lead[] = leads.map((dbLead: any) => ({
+            id: dbLead.id,
+            name: dbLead.name,
+            email: dbLead.email,
+            company: dbLead.company,
+            role: dbLead.role,
+            linkedin: dbLead.linkedin,
+            phone: dbLead.phone,
+            city: dbLead.city,
+            state: dbLead.state,
+            country: dbLead.country,
+            location: dbLead.location,
+            website: dbLead.website,
+            orgWebsite: dbLead.org_website,
+            orgSize: dbLead.org_size,
+            orgIndustry: dbLead.org_industry,
+            score: dbLead.score,
+            status: dbLead.status || 'new',
+            tags: dbLead.tags || [],
+          }));
+
+          setAllLeads(mappedLeads);
+        }
+      } catch (error: any) {
+        console.error('Error loading user data:', error);
+        addNotification('error', 'Load Failed', 'Could not load your data from database');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUserData();
+  }, [user]);
+
   // Scheduled campaign scheduler - runs every minute
   useEffect(() => {
     const interval = setInterval(() => {
@@ -3945,6 +4009,20 @@ export default function App() {
   const handleLeadsFound = async (newLeads: Lead[]) => {
     if (!user) return;
 
+    // First, ensure user row exists in public.users table
+    try {
+      await supabase
+        .from('users')
+        .upsert({
+          id: user.id,
+          email: user.email,
+        }, {
+          onConflict: 'id'
+        });
+    } catch (error: any) {
+      console.error('Error creating user row:', error);
+    }
+
     // Save leads to Supabase
     try {
       const { error } = await supabase
@@ -3957,9 +4035,18 @@ export default function App() {
             email: lead.email,
             company: lead.company,
             role: lead.role,
-            linkedin: lead.linkedin,
-            location: lead.city && lead.state ? `${lead.city}, ${lead.state}` : null,
+            linkedin: lead.linkedin || null,
+            phone: lead.phone || null,
+            city: lead.city || null,
+            state: lead.state || null,
+            country: lead.country || null,
+            location: lead.location || null,
+            website: lead.website || null,
+            org_website: lead.orgWebsite || null,
+            org_size: lead.orgSize || null,
+            org_industry: lead.orgIndustry || null,
             score: lead.score,
+            status: lead.status || 'new',
             tags: lead.tags || [],
           }))
         );
