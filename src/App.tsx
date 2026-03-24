@@ -4761,6 +4761,29 @@ export default function App() {
                                     <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                                       {lead.company}
                                     </span>
+                                    {lead.linkedin && (
+                                      <a
+                                        href={lead.linkedin}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center justify-center p-1 rounded-lg transition-all"
+                                        style={{
+                                          background: 'var(--bg-elevated)',
+                                          color: 'var(--text-muted)',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.background = 'rgba(10, 102, 194, 0.1)';
+                                          e.currentTarget.style.color = '#0A66C2';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.background = 'var(--bg-elevated)';
+                                          e.currentTarget.style.color = 'var(--text-muted)';
+                                        }}
+                                        title="View LinkedIn Profile"
+                                      >
+                                        <Linkedin className="w-3.5 h-3.5" />
+                                      </a>
+                                    )}
                                     {lead.website && (
                                       <a
                                         href={lead.website}
