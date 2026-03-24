@@ -2174,7 +2174,10 @@ function CampaignsView({
   const [abTestSize, setAbTestSize] = useState(20);
 
   const [enableScheduled, setEnableScheduled] = useState(false);
-  const [scheduledDateTime, setScheduledDateTime] = useState('');
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledHour, setScheduledHour] = useState('9');
+  const [scheduledMinute, setScheduledMinute] = useState('00');
+  const [scheduledPeriod, setScheduledPeriod] = useState('AM');
   const [scheduledTimezone, setScheduledTimezone] = useState('PST');
 
   const [enableFollowUp, setEnableFollowUp] = useState(false);
@@ -2688,29 +2691,169 @@ function CampaignsView({
                   </div>
                 </label>
                 {enableScheduled && (
-                  <div className="space-y-3 mt-4 pl-7">
-                    <input
-                      type="datetime-local"
-                      value={scheduledDateTime}
-                      onChange={(e) => setScheduledDateTime(e.target.value)}
-                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                      style={{ background: 'var(--bg-input)', color: 'var(--text-primary)' }}
-                    />
-                    <select
-                      value={scheduledTimezone}
-                      onChange={(e) => setScheduledTimezone(e.target.value)}
-                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                      style={{ background: 'var(--bg-input)', color: 'var(--text-primary)' }}
-                    >
-                      <option value="PST">Pacific Time (PST)</option>
-                      <option value="MST">Mountain Time (MST)</option>
-                      <option value="CST">Central Time (CST)</option>
-                      <option value="EST">Eastern Time (EST)</option>
-                    </select>
-                    {scheduledDateTime && (
-                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        Scheduled: {new Date(scheduledDateTime).toLocaleString()} {scheduledTimezone}
+                  <div className="space-y-4 mt-4 pl-7">
+                    {/* Quick Presets */}
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                        Quick Presets
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { label: 'Tomorrow 9 AM', days: 1, hour: '9', minute: '00', period: 'AM' },
+                          { label: 'Tomorrow 2 PM', days: 1, hour: '2', minute: '00', period: 'PM' },
+                          { label: 'Next Week Mon', days: 7, hour: '10', minute: '00', period: 'AM' },
+                          { label: 'In 3 Days 9 AM', days: 3, hour: '9', minute: '00', period: 'AM' },
+                        ].map((preset) => (
+                          <button
+                            key={preset.label}
+                            onClick={() => {
+                              const date = new Date();
+                              date.setDate(date.getDate() + preset.days);
+                              setScheduledDate(date.toISOString().split('T')[0]);
+                              setScheduledHour(preset.hour);
+                              setScheduledMinute(preset.minute);
+                              setScheduledPeriod(preset.period);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:scale-105"
+                            style={{
+                              background: 'var(--bg-input)',
+                              color: 'var(--text-secondary)',
+                              border: '1px solid var(--border-color)',
+                            }}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Date Selector */}
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                        📅 Date
+                      </label>
+                      <input
+                        type="date"
+                        value={scheduledDate}
+                        onChange={(e) => setScheduledDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                        className="w-full rounded-lg px-4 py-2.5 text-sm outline-none border-2 transition-all"
+                        style={{
+                          background: 'var(--bg-input)',
+                          color: 'var(--text-primary)',
+                          borderColor: scheduledDate ? 'var(--gradient-start)' : 'var(--border-color)',
+                        }}
+                      />
+                    </div>
+
+                    {/* Time Selector */}
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                        🕐 Time
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <select
+                          value={scheduledHour}
+                          onChange={(e) => setScheduledHour(e.target.value)}
+                          className="rounded-lg px-3 py-2.5 text-sm font-bold outline-none border-2 transition-all"
+                          style={{
+                            background: 'var(--bg-input)',
+                            color: 'var(--text-primary)',
+                            borderColor: 'var(--gradient-start)',
+                          }}
+                        >
+                          {Array.from({ length: 12 }, (_, i) => i + 1).map((hour) => (
+                            <option key={hour} value={hour}>
+                              {hour}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={scheduledMinute}
+                          onChange={(e) => setScheduledMinute(e.target.value)}
+                          className="rounded-lg px-3 py-2.5 text-sm font-bold outline-none border-2 transition-all"
+                          style={{
+                            background: 'var(--bg-input)',
+                            color: 'var(--text-primary)',
+                            borderColor: 'var(--gradient-start)',
+                          }}
+                        >
+                          {['00', '15', '30', '45'].map((min) => (
+                            <option key={min} value={min}>
+                              {min}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={scheduledPeriod}
+                          onChange={(e) => setScheduledPeriod(e.target.value)}
+                          className="rounded-lg px-3 py-2.5 text-sm font-bold outline-none border-2 transition-all"
+                          style={{
+                            background: 'var(--bg-input)',
+                            color: 'var(--text-primary)',
+                            borderColor: 'var(--gradient-start)',
+                          }}
+                        >
+                          <option value="AM">AM</option>
+                          <option value="PM">PM</option>
+                        </select>
+                      </div>
+                      <p className="text-xs mt-2 text-center font-bold" style={{ color: 'var(--text-secondary)' }}>
+                        {scheduledHour}:{scheduledMinute} {scheduledPeriod}
                       </p>
+                    </div>
+
+                    {/* Timezone Selector */}
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                        🌎 Timezone
+                      </label>
+                      <select
+                        value={scheduledTimezone}
+                        onChange={(e) => setScheduledTimezone(e.target.value)}
+                        className="w-full rounded-lg px-4 py-2.5 text-sm font-bold outline-none border-2 transition-all"
+                        style={{
+                          background: 'var(--bg-input)',
+                          color: 'var(--text-primary)',
+                          borderColor: 'var(--gradient-start)',
+                        }}
+                      >
+                        <option value="PST">🌅 Pacific Time (PST)</option>
+                        <option value="MST">🏔️ Mountain Time (MST)</option>
+                        <option value="CST">🌾 Central Time (CST)</option>
+                        <option value="EST">🗽 Eastern Time (EST)</option>
+                      </select>
+                    </div>
+
+                    {/* Preview */}
+                    {scheduledDate && (
+                      <div className="p-3 rounded-lg text-center" style={{ background: 'var(--status-verified-bg)' }}>
+                        <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                          Scheduled For
+                        </p>
+                        <p className="text-sm font-bold" style={{ color: 'var(--status-verified-text)' }}>
+                          {(() => {
+                            const date = new Date(scheduledDate);
+                            const hour24 = scheduledPeriod === 'PM' && scheduledHour !== '12'
+                              ? parseInt(scheduledHour) + 12
+                              : scheduledPeriod === 'AM' && scheduledHour === '12'
+                              ? 0
+                              : parseInt(scheduledHour);
+
+                            const formattedDate = date.toLocaleDateString('en-US', {
+                              weekday: 'short',
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            });
+
+                            return `${formattedDate} at ${scheduledHour}:${scheduledMinute} ${scheduledPeriod} ${scheduledTimezone}`;
+                          })()}
+                        </p>
+                        <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                          Campaign will be sent automatically
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}
@@ -2834,6 +2977,20 @@ function CampaignsView({
                       return;
                     }
 
+                    // Combine date and time into ISO datetime string
+                    let scheduledDateTimeISO = '';
+                    if (enableScheduled && scheduledDate) {
+                      const hour24 = scheduledPeriod === 'PM' && scheduledHour !== '12'
+                        ? parseInt(scheduledHour) + 12
+                        : scheduledPeriod === 'AM' && scheduledHour === '12'
+                        ? 0
+                        : parseInt(scheduledHour);
+
+                      const dateTime = new Date(scheduledDate);
+                      dateTime.setHours(hour24, parseInt(scheduledMinute), 0, 0);
+                      scheduledDateTimeISO = dateTime.toISOString();
+                    }
+
                     // Create campaign
                     const newCampaign: Campaign = {
                       id: `campaign-${Date.now()}`,
@@ -2858,14 +3015,14 @@ function CampaignsView({
                         variantB: { subject: abVariantB, recipientCount: 0, opens: 0 },
                         testSize: abTestSize,
                       } : undefined,
-                      scheduledSend: enableScheduled ? {
-                        scheduledFor: scheduledDateTime,
+                      scheduledSend: enableScheduled && scheduledDateTimeISO ? {
+                        scheduledFor: scheduledDateTimeISO,
                         timezone: scheduledTimezone,
                       } : undefined,
                     };
 
                     setCampaigns([...campaigns, newCampaign]);
-                    if (enableScheduled) {
+                    if (enableScheduled && scheduledDateTimeISO) {
                       setScheduledCampaigns([...scheduledCampaigns, newCampaign.id]);
                     }
 
@@ -2873,6 +3030,10 @@ function CampaignsView({
                     setCampaignName('');
                     setSelectedTemplate('');
                     setSelectedLeadsForCampaign([]);
+                    setScheduledDate('');
+                    setScheduledHour('9');
+                    setScheduledMinute('00');
+                    setScheduledPeriod('AM');
                     setEnableABTest(false);
                     setEnableScheduled(false);
                     setEnableFollowUp(false);
