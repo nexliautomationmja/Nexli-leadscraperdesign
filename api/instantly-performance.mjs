@@ -45,9 +45,9 @@ export default async function handler(req, res) {
 
     // Distribute evenly across 3 variations (roughly 33% each)
     // TODO: Replace with actual variation matching from email_logs table
-    const variations = ['ai_disruption', 'cost_savings', 'time_efficiency'];
-    variations.forEach((variation, index) => {
-      const portion = 1 / variations.length;
+    const variationKeys = ['ai_disruption', 'cost_savings', 'time_efficiency'];
+    variationKeys.forEach((variation, index) => {
+      const portion = 1 / variationKeys.length;
       const variance = 0.8 + (Math.random() * 0.4); // Add some randomness for realistic distribution
 
       totalStats[variation] = {
