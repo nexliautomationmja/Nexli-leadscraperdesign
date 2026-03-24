@@ -1042,10 +1042,16 @@ const Sidebar = ({
     }
 
     try {
+      // Use upsert to insert if not exists, update if exists
       const { error } = await supabase
         .from('users')
-        .update({ full_name: tempName.trim() })
-        .eq('id', user.id);
+        .upsert({
+          id: user.id,
+          email: user.email,
+          full_name: tempName.trim(),
+        }, {
+          onConflict: 'id'
+        });
 
       if (error) throw error;
 
@@ -1256,10 +1262,16 @@ const Sidebar = ({
                     .from('profile-photos')
                     .getPublicUrl(filePath);
 
+                  // Use upsert to insert if not exists, update if exists
                   const { error: updateError } = await supabase
                     .from('users')
-                    .update({ profile_photo_url: data.publicUrl })
-                    .eq('id', user.id);
+                    .upsert({
+                      id: user.id,
+                      email: user.email,
+                      profile_photo_url: data.publicUrl,
+                    }, {
+                      onConflict: 'id'
+                    });
 
                   if (updateError) throw updateError;
 
