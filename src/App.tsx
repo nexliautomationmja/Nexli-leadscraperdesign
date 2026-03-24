@@ -4746,6 +4746,11 @@ export default function App() {
                                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                                       {lead.email}
                                     </p>
+                                    {(lead.city || lead.state) && (
+                                      <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                                        📍 {[lead.city, lead.state].filter(Boolean).join(', ')}
+                                      </p>
+                                    )}
                                   </div>
                                 </div>
                               </td>
