@@ -1781,7 +1781,9 @@ const ScraperView = ({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate email');
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('API Error:', errorData);
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
 
       const email = await response.json();
@@ -4165,7 +4167,9 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate email');
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('API Error:', errorData);
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
 
       const email = await response.json();
