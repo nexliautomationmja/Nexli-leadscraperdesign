@@ -28,22 +28,36 @@ export default async function handler(req, res) {
       .map((p, i) => `Post ${i + 1}: "${(p.text || p.postText || '').slice(0, 300)}"`)
       .join('\n');
 
-    const prompt = `You are an expert cold email writer for Nexli, a premium automation agency that helps accounting firms scale with AI-powered solutions.
+    const prompt = `You are an expert cold email writer specializing in pain-based outreach for accounting firms.
 
-Write a short, personalized cold email to ${lead.name}, who is ${lead.role} at ${lead.company}.
+Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
 
-${postSummary ? `Here are their recent LinkedIn posts for personalization:\n${postSummary}\n\nReference ONE specific post naturally in the opening line.` : 'No LinkedIn posts available, so use their role and company for personalization.'}
+${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant to their operational challenges.` : 'Use their role and company context.'}
 
-Requirements:
-- Subject line: 6-10 words, curiosity-driven, NO spam words
-- Body: 3-4 short paragraphs max
-- Opening: Reference their LinkedIn activity or role specifically
-- Value prop: How Nexli's AI automation can help their accounting firm save time, reduce manual work, or scale
-- CTA: Soft ask for a quick 15-min call
-- Tone: Professional but conversational, not salesy
-- Sign off as "The Nexli Team"
+CRITICAL REQUIREMENTS:
+- Subject line: 6-10 words, pain-focused or curiosity-driven, NO spam words
+- Body: 3 short paragraphs max (keep it tight)
+- Opening: Start with THEIR pain point, not about us
+  * Common pains: Juggling 5-7 SaaS tools (QuickBooks, Dropbox, DocuSign, payment processors, email)
+  * High monthly SaaS costs stacking up ($500-2000/month on disconnected tools)
+  * Time wasted switching between platforms and manual data entry
+  * Security concerns with sensitive client data spread across multiple systems
+  * Client confusion from multiple logins
 
-Return ONLY valid JSON with this exact format:
+- Middle: Briefly present the possibility (NOT a pitch)
+  * "What if you could consolidate all of that into one quantum-resistant platform?"
+  * Mention 1-2 specific consolidation benefits: cost savings (50-70% reduction), time savings, or security
+  * DO NOT list features - focus on outcomes they care about
+
+- Close: Soft, consultative CTA
+  * "Worth a 15-minute conversation?" or similar low-pressure ask
+  * Sign off as "The Nexli Team"
+
+TONE: Consultative, empathetic, not salesy. Write like a peer who understands their struggles, not a vendor pitching.
+
+AVOID: Feature lists, "we do this/that", promotional language, hype words
+
+Return ONLY valid JSON:
 {"subject": "your subject line", "body": "your email body"}`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
