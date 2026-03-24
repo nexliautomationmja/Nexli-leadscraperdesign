@@ -1781,9 +1781,16 @@ const ScraperView = ({
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('API Error:', errorData);
-        throw new Error(errorData.error || `Server error: ${response.status}`);
+        const text = await response.text();
+        console.error('API Error - Status:', response.status);
+        console.error('API Error - Response:', text);
+
+        try {
+          const errorData = JSON.parse(text);
+          throw new Error(errorData.error || `Server error: ${response.status}`);
+        } catch {
+          throw new Error(`Server error ${response.status}: ${text.substring(0, 100)}`);
+        }
       }
 
       const email = await response.json();
@@ -4167,9 +4174,16 @@ export default function App() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('API Error:', errorData);
-        throw new Error(errorData.error || `Server error: ${response.status}`);
+        const text = await response.text();
+        console.error('API Error - Status:', response.status);
+        console.error('API Error - Response:', text);
+
+        try {
+          const errorData = JSON.parse(text);
+          throw new Error(errorData.error || `Server error: ${response.status}`);
+        } catch {
+          throw new Error(`Server error ${response.status}: ${text.substring(0, 100)}`);
+        }
       }
 
       const email = await response.json();
