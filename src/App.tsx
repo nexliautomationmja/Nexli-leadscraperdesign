@@ -385,127 +385,294 @@ const EmailGenerationModal = ({
   onSend: () => void;
   canSend: boolean;
   isSending: boolean;
-}) => (
-  <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      className="relative w-full max-w-2xl rounded-2xl overflow-hidden"
-      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between p-5"
-        style={{ borderBottom: '1px solid var(--border-subtle)' }}
+}) => {
+  const [editedSubject, setEditedSubject] = React.useState(email?.subject || '');
+  const [editedBody, setEditedBody] = React.useState(email?.body || '');
+  const [isEditing, setIsEditing] = React.useState(false);
+
+  React.useEffect(() => {
+    if (email) {
+      setEditedSubject(email.subject);
+      setEditedBody(email.body);
+    }
+  }, [email]);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-md"></div>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        transition={{ duration: 0.2 }}
+        className="relative w-full max-w-3xl rounded-3xl overflow-hidden shadow-2xl"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}
+        onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl nexli-gradient-bg">
-            <Sparkles className="w-4 h-4 text-white" />
+        {/* Gradient Header */}
+        <div className="relative nexli-gradient-bg p-8 overflow-hidden">
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute -top-20 -right-20 w-64 h-64 bg-white rounded-full blur-3xl"></div>
+            <div className="absolute -bottom-10 -left-10 w-48 h-48 bg-white rounded-full blur-2xl"></div>
           </div>
-          <div>
-            <h3 className="font-bold font-display" style={{ color: 'var(--text-primary)' }}>
-              AI Email for {lead.name}
-            </h3>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              {lead.role} at {lead.company}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={onClose}
-          className="p-2 rounded-xl transition-colors"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* Body */}
-      <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
-        {isGenerating && (
-          <div className="flex flex-col items-center justify-center py-12 gap-4">
-            <div className="gradient-spinner"></div>
-            <p className="text-sm font-medium animate-nexli-pulse" style={{ color: 'var(--text-muted)' }}>
-              Generating personalized email with AI...
-            </p>
-          </div>
-        )}
-        {error && (
-          <div className="p-4 rounded-xl text-sm" style={{ background: 'var(--status-failed-bg)', color: 'var(--status-failed-text)' }}>
-            {error}
-          </div>
-        )}
-        {email && !isGenerating && (
-          <>
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                Subject
-              </label>
-              <div
-                className="px-4 py-3 rounded-xl text-sm font-medium"
-                style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
-              >
-                {email.subject}
+          <div className="relative flex items-start justify-between">
+            <div className="flex items-start gap-4">
+              <div className="p-3 rounded-2xl bg-white/20 backdrop-blur-sm">
+                <Sparkles className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold font-display text-white mb-1">
+                  AI-Generated Email
+                </h3>
+                <p className="text-white/80 text-sm">
+                  Personalized for {lead.name}
+                </p>
               </div>
             </div>
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                Body
-              </label>
-              <div
-                className="px-4 py-3 rounded-xl text-sm whitespace-pre-wrap leading-relaxed"
-                style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
-              >
-                {email.body}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Footer */}
-      {email && !isGenerating && (
-        <div
-          className="flex items-center justify-between p-5 gap-3"
-          style={{ borderTop: '1px solid var(--border-subtle)' }}
-        >
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(`Subject: ${email.subject}\n\n${email.body}`);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors"
-            style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
-          >
-            <Copy className="w-4 h-4" />
-            Copy
-          </button>
-          <div className="flex items-center gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-sm font-bold transition-colors"
-              style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+              className="p-2 rounded-xl transition-all hover:bg-white/20"
+              style={{ color: 'white' }}
             >
-              Close
+              <X className="w-5 h-5" />
             </button>
-            {canSend && (
-              <button
-                onClick={onSend}
-                disabled={isSending}
-                className="nexli-btn-gradient px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 disabled:opacity-50"
-              >
-                {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                <span>{isSending ? 'Sending...' : 'Send Email'}</span>
-              </button>
-            )}
           </div>
         </div>
-      )}
-    </motion.div>
-  </div>
-);
+
+        {/* Lead Info Card */}
+        <div className="px-8 -mt-4 relative z-10">
+          <div className="glass-card p-5 rounded-2xl border border-white/10">
+            <div className="flex items-center gap-4">
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold nexli-gradient-bg text-white shadow-lg"
+              >
+                {lead.name[0]}
+              </div>
+              <div className="flex-1">
+                <h4 className="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
+                  {lead.name}
+                </h4>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  {lead.role} at {lead.company}
+                </p>
+                <div className="flex items-center gap-3 mt-1">
+                  <span className="text-xs flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                    <Mail className="w-3 h-3" />
+                    {lead.email}
+                  </span>
+                  {lead.linkedin && (
+                    <span className="text-xs flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                      <Linkedin className="w-3 h-3" />
+                      LinkedIn
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <span
+                  className="px-3 py-1 rounded-full text-xs font-bold"
+                  style={{
+                    background: lead.status === 'verified' ? 'var(--status-verified-bg)' : 'var(--bg-elevated)',
+                    color: lead.status === 'verified' ? 'var(--status-verified-text)' : 'var(--text-muted)',
+                  }}
+                >
+                  {lead.status}
+                </span>
+                <span
+                  className="px-3 py-1 rounded-full text-xs font-bold"
+                  style={{
+                    background: getScoreTier(lead.score).bg,
+                    color: getScoreTier(lead.score).color,
+                  }}
+                >
+                  {lead.score} Score
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Email Content */}
+        <div className="px-8 py-6 space-y-5 max-h-[50vh] overflow-y-auto">
+          {isGenerating && (
+            <div className="flex flex-col items-center justify-center py-16 gap-5">
+              <div className="relative">
+                <div className="gradient-spinner w-16 h-16 border-4"></div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Sparkles className="w-6 h-6 text-blue-500 animate-pulse" />
+                </div>
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
+                  Crafting Your Perfect Email...
+                </p>
+                <p className="text-sm animate-nexli-pulse" style={{ color: 'var(--text-muted)' }}>
+                  AI is analyzing {lead.name}'s profile and composing a personalized message
+                </p>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="p-5 rounded-2xl text-sm flex items-start gap-3" style={{ background: 'var(--status-failed-bg)', color: 'var(--status-failed-text)' }}>
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold mb-1">Error Generating Email</p>
+                <p>{error}</p>
+              </div>
+            </div>
+          )}
+
+          {email && !isGenerating && (
+            <div className="space-y-5">
+              {/* Subject Line */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                    <Mail className="w-3 h-3" />
+                    Subject Line
+                  </label>
+                  <button
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="text-xs font-bold flex items-center gap-1 px-2 py-1 rounded-lg transition-all"
+                    style={{
+                      color: isEditing ? 'var(--gradient-start)' : 'var(--text-muted)',
+                      background: isEditing ? 'var(--status-verified-bg)' : 'transparent',
+                    }}
+                  >
+                    <Edit className="w-3 h-3" />
+                    {isEditing ? 'Editing' : 'Edit'}
+                  </button>
+                </div>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editedSubject}
+                    onChange={(e) => setEditedSubject(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl text-sm font-medium outline-none border-2 transition-all"
+                    style={{
+                      background: 'var(--bg-elevated)',
+                      color: 'var(--text-primary)',
+                      borderColor: 'var(--gradient-start)',
+                    }}
+                  />
+                ) : (
+                  <div
+                    className="px-5 py-4 rounded-xl text-sm font-bold leading-relaxed"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                  >
+                    {editedSubject}
+                  </div>
+                )}
+              </div>
+
+              {/* Email Body */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider mb-2 block flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                  <Send className="w-3 h-3" />
+                  Email Body
+                </label>
+                {isEditing ? (
+                  <textarea
+                    value={editedBody}
+                    onChange={(e) => setEditedBody(e.target.value)}
+                    rows={12}
+                    className="w-full px-4 py-3 rounded-xl text-sm leading-relaxed outline-none border-2 transition-all resize-none"
+                    style={{
+                      background: 'var(--bg-elevated)',
+                      color: 'var(--text-primary)',
+                      borderColor: 'var(--gradient-start)',
+                    }}
+                  />
+                ) : (
+                  <div
+                    className="px-5 py-4 rounded-xl text-sm whitespace-pre-wrap leading-relaxed"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                  >
+                    {editedBody}
+                  </div>
+                )}
+              </div>
+
+              {/* Email Stats */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 rounded-xl text-center" style={{ background: 'var(--bg-elevated)' }}>
+                  <p className="text-xs font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Words</p>
+                  <p className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                    {editedBody.split(/\s+/).length}
+                  </p>
+                </div>
+                <div className="p-3 rounded-xl text-center" style={{ background: 'var(--bg-elevated)' }}>
+                  <p className="text-xs font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Characters</p>
+                  <p className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                    {editedBody.length}
+                  </p>
+                </div>
+                <div className="p-3 rounded-xl text-center" style={{ background: 'var(--bg-elevated)' }}>
+                  <p className="text-xs font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Read Time</p>
+                  <p className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                    {Math.ceil(editedBody.split(/\s+/).length / 200)}min
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Enhanced Footer */}
+        {email && !isGenerating && (
+          <div
+            className="px-8 py-6 flex items-center justify-between gap-3"
+            style={{ borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)' }}
+          >
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(`Subject: ${editedSubject}\n\n${editedBody}`);
+                // Could add a toast notification here
+              }}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all hover:scale-105"
+              style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+            >
+              <Copy className="w-4 h-4" />
+              Copy to Clipboard
+            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onClose}
+                className="px-5 py-3 rounded-xl text-sm font-bold transition-all"
+                style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+              >
+                Cancel
+              </button>
+              {canSend && (
+                <button
+                  onClick={() => {
+                    // Update the email with edited content before sending
+                    onSend();
+                  }}
+                  disabled={isSending}
+                  className="nexli-btn-gradient px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 shadow-xl hover:shadow-2xl transition-all disabled:opacity-50 hover:scale-105"
+                >
+                  {isSending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>Send Email</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+};
 
 // --- Mock Data ---
 const MOCK_DATA = [
