@@ -1054,6 +1054,7 @@ const Sidebar = ({
       setEditingName(false);
     } catch (error: any) {
       addNotification('error', 'Update Failed', error.message);
+      setEditingName(false);
     }
   };
 
