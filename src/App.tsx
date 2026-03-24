@@ -1677,7 +1677,10 @@ const ScraperView = ({
       const res = await fetch(`/api/scrape/${runId}`);
       const data = await res.json();
 
-      if (data.error) throw new Error(data.error);
+      if (data.error) {
+        const errorMsg = String(data.error);
+        throw new Error(errorMsg);
+      }
 
       // Rotate through status messages while polling
       setScrapingStep(statusSteps[stepIdx % statusSteps.length]);
@@ -1686,7 +1689,8 @@ const ScraperView = ({
       if (data.status === 'SUCCEEDED') {
         return data;
       } else if (data.status === 'FAILED' || data.status === 'ABORTED') {
-        throw new Error(`Scrape ${data.status.toLowerCase()}. Please try again.`);
+        const status = String(data.status || 'UNKNOWN').toLowerCase();
+        throw new Error(`Scrape ${status}. Please try again.`);
       }
 
       // Poll every 3 seconds
