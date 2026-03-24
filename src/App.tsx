@@ -42,6 +42,7 @@ import {
   Edit,
   LogOut,
   Camera,
+  Check,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { Auth } from './components/Auth';
@@ -1273,23 +1274,32 @@ const Sidebar = ({
           </div>
           <div className="flex-1 min-w-0">
             {editingName ? (
-              <input
-                type="text"
-                value={tempName}
-                onChange={(e) => setTempName(e.target.value)}
-                onBlur={handleSaveName}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveName();
-                  if (e.key === 'Escape') setEditingName(false);
-                }}
-                autoFocus
-                className="text-xs font-bold w-full px-2 py-1 rounded border"
-                style={{
-                  color: 'var(--text-primary)',
-                  background: 'var(--bg-surface)',
-                  borderColor: 'var(--border-color)',
-                }}
-              />
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={tempName}
+                  onChange={(e) => setTempName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveName();
+                    if (e.key === 'Escape') setEditingName(false);
+                  }}
+                  autoFocus
+                  className="text-xs font-bold flex-1 px-2 py-1 rounded border"
+                  style={{
+                    color: 'var(--text-primary)',
+                    background: 'var(--bg-surface)',
+                    borderColor: 'var(--border-color)',
+                  }}
+                />
+                <button
+                  onClick={handleSaveName}
+                  className="p-1 rounded hover:opacity-70 transition-opacity"
+                  style={{ color: '#10B981' }}
+                  title="Save name"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+              </div>
             ) : (
               <p
                 className="text-xs font-bold truncate cursor-pointer hover:opacity-70 transition-opacity"
