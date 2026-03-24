@@ -3929,7 +3929,7 @@ export default function App() {
     loadUserData();
   }, [user]);
 
-  // Smart reload: Only reload data if tab inactive for 5+ minutes
+  // Smart reload: Only reload data if tab inactive for 30+ minutes
   useEffect(() => {
     if (!user) return;
 
@@ -3939,8 +3939,8 @@ export default function App() {
       if (document.visibilityState === 'visible') {
         const inactiveMinutes = (Date.now() - lastActiveTime) / 1000 / 60;
 
-        // Only reload if inactive for 5+ minutes
-        if (inactiveMinutes >= 5) {
+        // Only reload if inactive for 30+ minutes
+        if (inactiveMinutes >= 30) {
           console.log(`Tab was inactive for ${Math.round(inactiveMinutes)} minutes, refreshing data...`);
 
           try {
