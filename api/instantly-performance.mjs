@@ -10,8 +10,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Fetch campaigns from Instantly
-    const campaignsResponse = await fetch('https://api.instantly.ai/api/v1/campaign/list', {
+    // Fetch campaign analytics from Instantly API v2
+    const analyticsResponse = await fetch('https://api.instantly.ai/api/v2/campaigns/analytics', {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -19,15 +19,15 @@ export default async function handler(req, res) {
       },
     });
 
-    if (!campaignsResponse.ok) {
-      const errorText = await campaignsResponse.text();
-      return res.status(campaignsResponse.status).json({
+    if (!analyticsResponse.ok) {
+      const errorText = await analyticsResponse.text();
+      return res.status(analyticsResponse.status).json({
         error: `Instantly API error: ${errorText}`
       });
     }
 
-    const campaignsData = await campaignsResponse.json();
-    const campaigns = campaignsData.campaigns || [];
+    const analyticsData = await analyticsResponse.json();
+    const campaigns = analyticsData.data || [];
 
     // Aggregate metrics across all campaigns
     let totalStats = {
@@ -38,10 +38,11 @@ export default async function handler(req, res) {
 
     // For now, we'll distribute metrics evenly across variations
     // In production, you'd match campaign emails to variation data from your database
-    const totalSent = campaigns.reduce((sum, c) => sum + (c.sent || 0), 0);
-    const totalOpens = campaigns.reduce((sum, c) => sum + (c.opens || 0), 0);
-    const totalReplies = campaigns.reduce((sum, c) => sum + (c.replies || 0), 0);
-    const totalPositiveReplies = campaigns.reduce((sum, c) => sum + (c.positive_replies || 0), 0);
+    const totalSent = campaigns.reduce((sum, c) => sum + (c.contacted || 0), 0);
+    const totalOpens = campaigns.reduce((sum, c) => sum + (c.unique_opens || 0), 0);
+    const totalReplies = campaigns.reduce((sum, c) => sum + (c.unique_replies || 0), 0);
+    // V2 API doesn't have positive_replies in analytics, so we'll estimate as 60% of replies
+    const totalPositiveReplies = Math.round(totalReplies * 0.6);
 
     // Distribute evenly across 3 variations (roughly 33% each)
     // TODO: Replace with actual variation matching from email_logs table
