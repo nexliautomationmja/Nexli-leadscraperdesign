@@ -331,6 +331,61 @@ async function batchLookupWebsites<T extends { company?: string; city?: string; 
   return results;
 }
 
+// Background website enrichment with progress tracking
+async function enrichWebsitesInBackground<T extends { company?: string; city?: string; state?: string; orgWebsite?: string; website?: string }>(
+  leads: T[],
+  onProgress: (current: number, total: number) => void,
+  batchSize: number = 5,
+  delayMs: number = 500
+): Promise<T[]> {
+  const results = [...leads];
+
+  // Find leads that need website lookup
+  const needsLookup = leads
+    .map((lead, index) => ({ lead, index }))
+    .filter(({ lead }) => !lead.orgWebsite && lead.company && (lead.city || lead.state));
+
+  console.log(`Background enrichment: ${needsLookup.length} websites to find...`);
+  onProgress(0, needsLookup.length);
+
+  let completed = 0;
+
+  // Process in batches
+  for (let i = 0; i < needsLookup.length; i += batchSize) {
+    const batch = needsLookup.slice(i, i + batchSize);
+
+    // Process batch in parallel
+    await Promise.all(
+      batch.map(async ({ lead, index }) => {
+        try {
+          const website = await lookupWebsite(lead.company!, lead.city, lead.state);
+          if (website) {
+            results[index].website = website;
+          }
+        } catch (error) {
+          console.error(`Failed to lookup website for ${lead.company}:`, error);
+        }
+        completed++;
+        onProgress(completed, needsLookup.length);
+      })
+    );
+
+    // Delay between batches to respect rate limits
+    if (i + batchSize < needsLookup.length) {
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+
+  // Set orgWebsite as website for leads that already have it
+  results.forEach(lead => {
+    if (lead.orgWebsite && !lead.website) {
+      lead.website = lead.orgWebsite;
+    }
+  });
+
+  return results;
+}
+
 // Parse CSV and convert to leads
 function parseCSVToLeads(csvText: string): Lead[] {
   const lines = csvText.trim().split('\n');
@@ -2035,6 +2090,10 @@ const ScraperView = ({
   const [stateFilter, setStateFilter] = useState<string>('');
   const [cityFilter, setCityFilter] = useState<string>('');
 
+  // Website enrichment state
+  const [enrichWebsites, setEnrichWebsites] = useState(true);
+  const [enrichmentProgress, setEnrichmentProgress] = useState({ current: 0, total: 0, isEnriching: false });
+
   // Email generation state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [generatedEmail, setGeneratedEmail] = useState<{ subject: string; body: string } | null>(null);
@@ -2292,7 +2351,7 @@ const ScraperView = ({
 
       // Step 3: Fetch results
       setScrapingStep('Fetching results...');
-      const resultsRes = await fetch(`/api/scrape/${startData.runId}/results?limit=100`);
+      const resultsRes = await fetch(`/api/scrape/${startData.runId}/results?limit=${totalResults}`);
       const resultsData = await resultsRes.json();
 
       if (resultsData.error) {
@@ -2301,13 +2360,31 @@ const ScraperView = ({
 
       const mapped = resultsData.items.map(mapApifyLead);
 
-      // Look up websites for leads that don't have one (batched to avoid rate limits)
-      setScrapingStep('Finding company websites (batched)...');
-      const leadsWithWebsites = await batchLookupWebsites(mapped, 5, 500);
+      // Set orgWebsite as website for leads that already have it
+      mapped.forEach((lead: Lead) => {
+        if (lead.orgWebsite && !lead.website) {
+          lead.website = lead.orgWebsite;
+        }
+      });
+
+      let leadsWithWebsites = mapped;
+
+      // Conditionally enrich websites based on settings
+      if (enrichWebsites && totalResults <= 100) {
+        // For small batches (≤100), enrich immediately
+        setScrapingStep('Finding company websites (batched)...');
+        leadsWithWebsites = await batchLookupWebsites(mapped, 5, 500);
+      } else if (!enrichWebsites) {
+        // Skip enrichment entirely
+        console.log(`Website enrichment disabled. Using orgWebsite data only (${mapped.filter((l: Lead) => l.website).length}/${mapped.length} have websites).`);
+      } else {
+        // For large batches (>100), show results immediately and enrich in background
+        console.log(`Large batch detected (${totalResults} leads). Showing results immediately. Website enrichment will run in background.`);
+      }
 
       // Filter for decision makers only (title filtering)
       setScrapingStep('Filtering decision makers...');
-      const filteredLeads = leadsWithWebsites.filter((lead) => {
+      const filteredLeads = leadsWithWebsites.filter((lead: Lead) => {
         const role = lead.role.toLowerCase();
 
         // Check if title contains any excluded keywords
@@ -2329,12 +2406,43 @@ const ScraperView = ({
 
       setResults(filteredLeads);
       onLeadsFound(filteredLeads);
+
+      // Start background enrichment for large batches
+      if (enrichWebsites && totalResults > 100) {
+        startBackgroundEnrichment(filteredLeads);
+      }
     } catch (err: any) {
       console.error('Scraping failed:', err);
       setError(err.message || 'Scraping failed. Check your API configuration.');
     } finally {
       setIsScraping(false);
       setScrapingStep('');
+    }
+  };
+
+  // Background enrichment handler
+  const startBackgroundEnrichment = async (leads: Lead[]) => {
+    setEnrichmentProgress({ current: 0, total: 0, isEnriching: true });
+
+    try {
+      const enriched = await enrichWebsitesInBackground(
+        leads,
+        (current, total) => {
+          setEnrichmentProgress({ current, total, isEnriching: true });
+        },
+        5, // batch size
+        500 // delay between batches
+      );
+
+      // Update results with enriched data
+      setResults(enriched);
+      onLeadsFound(enriched);
+
+      console.log(`Background enrichment complete! Updated ${enriched.filter(l => l.website).length}/${enriched.length} leads with websites.`);
+    } catch (error) {
+      console.error('Background enrichment failed:', error);
+    } finally {
+      setEnrichmentProgress({ current: 0, total: 0, isEnriching: false });
     }
   };
 
@@ -2478,6 +2586,45 @@ const ScraperView = ({
             </div>
           </div>
 
+          {/* Website Enrichment Toggle */}
+          <div
+            className="glass-card p-4 rounded-xl"
+            style={{ border: '1px solid var(--border-color)' }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                  🌐 Enrich Company Websites
+                </p>
+                <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {totalResults > 100
+                    ? `Auto-disabled for ${totalResults.toLocaleString()}+ leads. Results will show instantly. Websites enrich in background.`
+                    : 'Use Google to find missing company websites (adds ~30-60s for 100 leads)'
+                  }
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer ml-4">
+                <input
+                  type="checkbox"
+                  checked={enrichWebsites}
+                  onChange={(e) => setEnrichWebsites(e.target.checked)}
+                  disabled={totalResults > 100}
+                  className="sr-only peer"
+                />
+                <div className={`w-11 h-6 rounded-full peer transition-all ${totalResults > 100 ? 'opacity-50 cursor-not-allowed' : ''}`} style={{
+                  background: enrichWebsites ? 'var(--nexli-primary)' : 'var(--bg-input)',
+                }}>
+                  <div
+                    className="absolute top-[2px] left-[2px] bg-white rounded-full h-5 w-5 transition-all"
+                    style={{
+                      transform: enrichWebsites ? 'translateX(20px)' : 'translateX(0)',
+                    }}
+                  />
+                </div>
+              </label>
+            </div>
+          </div>
+
           {/* Decision Maker Filters */}
           <div
             className="glass-card p-4 rounded-xl space-y-4"
@@ -2618,11 +2765,41 @@ const ScraperView = ({
       {/* Results Table */}
       <AnimatePresence>
         {results.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="glass-card rounded-2xl overflow-hidden"
-          >
+          <>
+            {/* Enrichment Progress Banner */}
+            {enrichmentProgress.isEnriching && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="glass-card p-4 rounded-xl flex items-center justify-between mb-4"
+                style={{ background: 'var(--nexli-primary-light)', border: '1px solid var(--nexli-primary)' }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="animate-spin">
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="var(--nexli-primary)" strokeWidth="3" strokeLinecap="round" strokeDasharray="60" strokeDashoffset="30" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                      🌐 Enriching company websites in background...
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {enrichmentProgress.current} of {enrichmentProgress.total} websites found
+                    </p>
+                  </div>
+                </div>
+                <div className="text-sm font-bold" style={{ color: 'var(--nexli-primary)' }}>
+                  {enrichmentProgress.total > 0 ? Math.round((enrichmentProgress.current / enrichmentProgress.total) * 100) : 0}%
+                </div>
+              </motion.div>
+            )}
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="glass-card rounded-2xl overflow-hidden"
+            >
             <div
               className="p-5 flex items-center justify-between"
               style={{ borderBottom: `1px solid var(--border-subtle)` }}
@@ -2836,6 +3013,7 @@ const ScraperView = ({
               </tbody>
             </table>
           </motion.div>
+          </>
         )}
       </AnimatePresence>
 
