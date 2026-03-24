@@ -78,6 +78,7 @@ interface Lead {
   state?: string;
   country?: string;
   orgWebsite?: string;
+  website?: string; // Company website URL (from Google search or manual entry)
   orgSize?: string;
   orgIndustry?: string;
   seniority?: string;
@@ -212,7 +213,7 @@ function exportLeadsToCSV(leads: Lead[]) {
   const rows = leads.map((l) => [
     l.name, l.email, l.company, l.role, l.status, l.score,
     l.linkedin, l.phone || '', l.city || '', l.state || '', l.country || '',
-    l.orgWebsite || '', l.orgSize || '', l.orgIndustry || '',
+    l.website || l.orgWebsite || '', l.orgSize || '', l.orgIndustry || '',
   ]);
 
   const csv = [headers.join(','), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
@@ -252,6 +253,38 @@ function fillTemplate(template: EmailTemplate, lead: Lead): { subject: string; b
   return { subject, body };
 }
 
+// Look up company website using Google Custom Search API
+async function lookupWebsite(companyName: string, city?: string, state?: string): Promise<string | null> {
+  const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
+  const searchEngineId = import.meta.env.VITE_GOOGLE_SEARCH_ENGINE_ID;
+
+  if (!apiKey || !searchEngineId) {
+    console.warn('Google Custom Search API credentials not configured');
+    return null;
+  }
+
+  try {
+    // Build search query: "Company Name City State"
+    const query = [companyName, city, state].filter(Boolean).join(' ');
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.items && data.items.length > 0) {
+      // Return the first result's URL
+      const websiteUrl = data.items[0].link;
+      console.log(`Found website for ${companyName}: ${websiteUrl}`);
+      return websiteUrl;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error looking up website:', error);
+    return null;
+  }
+}
+
 // Parse CSV and convert to leads
 function parseCSVToLeads(csvText: string): Lead[] {
   const lines = csvText.trim().split('\n');
@@ -276,6 +309,7 @@ function parseCSVToLeads(csvText: string): Lead[] {
 
     if (!name || !email) continue;
 
+    const websiteUrl = getColumn(['website', 'company website', 'org website']);
     const lead: Lead = {
       id: `lead-${Date.now()}-${i}`,
       name,
@@ -288,7 +322,8 @@ function parseCSVToLeads(csvText: string): Lead[] {
       city: getColumn(['city', 'location']),
       state: getColumn(['state', 'province']),
       country: getColumn(['country']),
-      orgWebsite: getColumn(['website', 'company website', 'org website']),
+      orgWebsite: websiteUrl,
+      website: websiteUrl, // Also set website field
       orgSize: getColumn(['company size', 'org size', 'size']),
       orgIndustry: getColumn(['industry', 'sector']),
       seniority: getColumn(['seniority', 'level']),
@@ -1747,8 +1782,26 @@ const ScraperView = ({
       }
 
       const mapped = resultsData.items.map(mapApifyLead);
-      setResults(mapped);
-      onLeadsFound(mapped);
+
+      // Look up websites for leads that don't have one
+      setScrapingStep('Finding company websites...');
+      const leadsWithWebsites = await Promise.all(
+        mapped.map(async (lead) => {
+          // Use orgWebsite if available, otherwise look it up
+          if (lead.orgWebsite) {
+            lead.website = lead.orgWebsite;
+          } else if (lead.company && (lead.city || lead.state)) {
+            const foundWebsite = await lookupWebsite(lead.company, lead.city, lead.state);
+            if (foundWebsite) {
+              lead.website = foundWebsite;
+            }
+          }
+          return lead;
+        })
+      );
+
+      setResults(leadsWithWebsites);
+      onLeadsFound(leadsWithWebsites);
     } catch (err: any) {
       console.error('Scraping failed:', err);
       setError(err.message || 'Scraping failed. Check your API configuration.');
@@ -2086,8 +2139,35 @@ const ScraperView = ({
                     <td className="px-5 py-4">
                       <ScoreBadge score={lead.score} />
                     </td>
-                    <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      {lead.company}
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                          {lead.company}
+                        </span>
+                        {lead.website && (
+                          <a
+                            href={lead.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center p-1 rounded-lg transition-all"
+                            style={{
+                              background: 'var(--bg-elevated)',
+                              color: 'var(--text-muted)',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = 'rgba(37, 99, 235, 0.1)';
+                              e.currentTarget.style.color = 'var(--gradient-start)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'var(--bg-elevated)';
+                              e.currentTarget.style.color = 'var(--text-muted)';
+                            }}
+                            title={`Visit ${lead.website}`}
+                          >
+                            <Globe className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-4">
                       <a
@@ -3239,6 +3319,7 @@ export default function App() {
   // Feature states (8 advanced features)
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [websiteFilter, setWebsiteFilter] = useState<'all' | 'has-website' | 'no-website'>('all');
 
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>(() => {
     const stored = localStorage.getItem('nexli-email-templates');
@@ -3775,10 +3856,125 @@ export default function App() {
   // Show loading spinner while checking auth
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-500 flex items-center justify-center">
+      <div
+        className="min-h-screen flex items-center justify-center transition-colors duration-300"
+        style={{ background: 'var(--bg-primary)' }}
+      >
+        <style>{`
+          @keyframes dashOffset {
+            0% {
+              stroke-dashoffset: 500;
+            }
+            100% {
+              stroke-dashoffset: 0;
+            }
+          }
+          @keyframes rotateLoader {
+            0% {
+              transform: rotate(0deg);
+            }
+            100% {
+              transform: rotate(360deg);
+            }
+          }
+          .nexli-loader-path {
+            stroke-dasharray: 500;
+            stroke-dashoffset: 500;
+            animation: dashOffset 2s ease-in-out infinite alternate;
+          }
+          .nexli-loader-container {
+            animation: rotateLoader 3s linear infinite;
+          }
+        `}</style>
         <div className="text-center">
-          <Loader2 className="w-12 h-12 text-white animate-spin mx-auto mb-4" />
-          <p className="text-white text-lg">Loading Nexli...</p>
+          {/* Nexli Logo Outline Loader */}
+          <div className="relative mb-8">
+            {/* Glow effect */}
+            <div className="absolute inset-0 blur-3xl opacity-40">
+              <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-blue-600 to-cyan-400"></div>
+            </div>
+
+            {/* Animated logo outline */}
+            <div className="relative nexli-loader-container">
+              <svg
+                viewBox="0 0 48 48"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-24 h-24 mx-auto"
+              >
+                <defs>
+                  <linearGradient id="nexli-breakthrough-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#2563EB" />
+                    <stop offset="100%" stopColor="#06B6D4" />
+                  </linearGradient>
+                </defs>
+
+                {/* Logo outline paths with stroke animation */}
+                <path
+                  d="M12 36L28 24L12 12L12 18L18 24L12 30L12 36Z"
+                  stroke="url(#nexli-breakthrough-gradient)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  className="nexli-loader-path"
+                />
+                <path
+                  d="M20 36L44 24L20 12L20 18L32 24L20 30L20 36Z"
+                  stroke="#06B6D4"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  className="nexli-loader-path"
+                  style={{ animationDelay: '0.2s' }}
+                />
+              </svg>
+            </div>
+          </div>
+
+          {/* Loading text */}
+          <div className="space-y-3">
+            <h2
+              className="text-3xl font-display font-extrabold tracking-tight nexli-gradient-text"
+            >
+              NEXLI
+            </h2>
+            <p
+              className="text-sm font-medium"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Loading your dashboard...
+            </p>
+          </div>
+
+          {/* Progress dots */}
+          <div className="flex justify-center gap-2 mt-8">
+            <div
+              className="w-2 h-2 rounded-full animate-bounce"
+              style={{
+                background: 'linear-gradient(135deg, #2563EB, #06B6D4)',
+                animationDelay: '0ms',
+                animationDuration: '1s'
+              }}
+            ></div>
+            <div
+              className="w-2 h-2 rounded-full animate-bounce"
+              style={{
+                background: 'linear-gradient(135deg, #2563EB, #06B6D4)',
+                animationDelay: '200ms',
+                animationDuration: '1s'
+              }}
+            ></div>
+            <div
+              className="w-2 h-2 rounded-full animate-bounce"
+              style={{
+                background: 'linear-gradient(135deg, #2563EB, #06B6D4)',
+                animationDelay: '400ms',
+                animationDuration: '1s'
+              }}
+            ></div>
+          </div>
         </div>
       </div>
     );
@@ -3971,12 +4167,15 @@ export default function App() {
                       Filter:
                     </span>
                     <button
-                      onClick={() => setActiveTagFilter(null)}
+                      onClick={() => {
+                        setActiveTagFilter(null);
+                        setWebsiteFilter('all');
+                      }}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        activeTagFilter === null ? 'nexli-gradient-bg text-white' : ''
+                        activeTagFilter === null && websiteFilter === 'all' ? 'nexli-gradient-bg text-white' : ''
                       }`}
                       style={
-                        activeTagFilter === null
+                        activeTagFilter === null && websiteFilter === 'all'
                           ? {}
                           : {
                               background: 'var(--bg-elevated)',
@@ -4007,6 +4206,35 @@ export default function App() {
                         </button>
                       );
                     })}
+
+                    {/* Divider */}
+                    <div className="h-6 w-px" style={{ background: 'var(--border-color)' }} />
+
+                    {/* Website Filters */}
+                    <button
+                      onClick={() => setWebsiteFilter('has-website')}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                      style={{
+                        background: websiteFilter === 'has-website' ? 'rgba(37, 99, 235, 0.1)' : 'var(--bg-elevated)',
+                        color: websiteFilter === 'has-website' ? 'var(--gradient-start)' : 'var(--text-muted)',
+                        border: websiteFilter === 'has-website' ? '1px solid var(--gradient-start)' : 'none',
+                      }}
+                    >
+                      <Globe className="w-3 h-3" />
+                      Has Website ({allLeads.filter(l => l.website).length})
+                    </button>
+                    <button
+                      onClick={() => setWebsiteFilter('no-website')}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                      style={{
+                        background: websiteFilter === 'no-website' ? 'rgba(239, 68, 68, 0.1)' : 'var(--bg-elevated)',
+                        color: websiteFilter === 'no-website' ? '#EF4444' : 'var(--text-muted)',
+                        border: websiteFilter === 'no-website' ? '1px solid #EF4444' : 'none',
+                      }}
+                    >
+                      <Globe className="w-3 h-3" />
+                      No Website ({allLeads.filter(l => !l.website).length})
+                    </button>
                   </div>
 
                   {allLeads.length > 0 ? (
@@ -4038,7 +4266,16 @@ export default function App() {
                         </thead>
                         <tbody>
                           {allLeads
-                            .filter((lead) => !activeTagFilter || lead.tags?.includes(activeTagFilter))
+                            .filter((lead) => {
+                              // Tag filter
+                              const tagMatch = !activeTagFilter || lead.tags?.includes(activeTagFilter);
+                              // Website filter
+                              const websiteMatch =
+                                websiteFilter === 'all' ||
+                                (websiteFilter === 'has-website' && lead.website) ||
+                                (websiteFilter === 'no-website' && !lead.website);
+                              return tagMatch && websiteMatch;
+                            })
                             .map((lead, idx) => (
                             <tr
                               key={lead.id}
@@ -4097,9 +4334,34 @@ export default function App() {
                               </td>
                               <td className="px-5 py-4">
                                 <div className="flex flex-col gap-2">
-                                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                                    {lead.company}
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                      {lead.company}
+                                    </span>
+                                    {lead.website && (
+                                      <a
+                                        href={lead.website}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center justify-center p-1 rounded-lg transition-all"
+                                        style={{
+                                          background: 'var(--bg-elevated)',
+                                          color: 'var(--text-muted)',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.background = 'rgba(37, 99, 235, 0.1)';
+                                          e.currentTarget.style.color = 'var(--gradient-start)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.background = 'var(--bg-elevated)';
+                                          e.currentTarget.style.color = 'var(--text-muted)';
+                                        }}
+                                        title={`Visit ${lead.website}`}
+                                      >
+                                        <Globe className="w-3.5 h-3.5" />
+                                      </a>
+                                    )}
+                                  </div>
                                   {lead.tags && lead.tags.length > 0 && (
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       {lead.tags.map((tagId) => {

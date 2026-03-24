@@ -42,6 +42,7 @@ export interface Database {
           role: string;
           linkedin: string | null;
           location: string | null;
+          website: string | null;
           score: number;
           tags: string[] | null;
           created_at: string;
@@ -55,6 +56,7 @@ export interface Database {
           role: string;
           linkedin?: string | null;
           location?: string | null;
+          website?: string | null;
           score: number;
           tags?: string[] | null;
           created_at?: string;
@@ -68,6 +70,7 @@ export interface Database {
           role?: string;
           linkedin?: string | null;
           location?: string | null;
+          website?: string | null;
           score?: number;
           tags?: string[] | null;
           created_at?: string;

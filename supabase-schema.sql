@@ -23,6 +23,7 @@ CREATE TABLE public.leads (
   role TEXT NOT NULL,
   linkedin TEXT,
   location TEXT,
+  website TEXT,
   score INTEGER NOT NULL,
   tags TEXT[] DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW()
