@@ -1,6 +1,6 @@
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   // Debug logging
   console.log('API Key exists:', !!ANTHROPIC_API_KEY);
   console.log('API Key length:', ANTHROPIC_API_KEY?.length || 0);
