@@ -3604,7 +3604,10 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<{ full_name: string; profile_photo_url: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    const stored = localStorage.getItem('nexli-active-tab');
+    return stored || 'dashboard';
+  });
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
 
   // Campaign state with localStorage persistence
@@ -3690,6 +3693,11 @@ export default function App() {
     document.documentElement.classList.toggle('dark', isDark);
     localStorage.setItem('nexli-theme', isDark ? 'dark' : 'light');
   }, [isDark]);
+
+  // Persist active tab to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexli-active-tab', activeTab);
+  }, [activeTab]);
 
   // Persist campaigns to localStorage
   useEffect(() => {
