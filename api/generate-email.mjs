@@ -1,10 +1,126 @@
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
+// Email variation prompts for A/B/C testing
+const EMAIL_VARIATIONS = {
+  ai_disruption: {
+    name: 'AI Disruption & Ownership',
+    prompt: (lead, postSummary) => `You are an expert cold email writer specializing in pain-based outreach for accounting firms.
+
+Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
+
+${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
+
+CRITICAL REQUIREMENTS - AI DISRUPTION ANGLE:
+- Subject line: 4-8 words, mention "AI" or "software" or specific pain, NO spam words
+  Examples: "AI making your software obsolete?", "Goldman Sachs SaaS warning", "software squeeze ahead"
+
+- Opening: Start with AI disruption threat or future pain
+  * "Goldman Sachs just warned that most software tools have 5 years before AI makes them obsolete"
+  * "As AI replaces headcount, SaaS vendors are going to squeeze the clients who stayed"
+  * "What happens to your per-seat licenses when AI cuts your team size in half?"
+  * Lead with THEIR future pain, not current pain
+
+- Middle: Present ownership/control as the solution
+  * "You don't even own the data sitting in those platforms"
+  * "Annual contracts and per-seat pricing = counter-party risk"
+  * "What if you could own the platform instead of renting it?"
+  * Focus on: data ownership, no vendor lock-in, no per-seat squeeze
+  * Mention: military-grade security, future-proof
+
+- Close: Soft, consultative CTA
+  * "Worth exploring before the squeeze hits?"
+  * "Open to a quick conversation about ownership models?"
+  * Sign off as "The Nexli Team"
+
+TONE: Forward-thinking, protective (like warning a peer), not salesy.
+
+AVOID: Feature lists, "we do this/that", promotional language
+
+Return ONLY valid JSON:
+{"subject": "your subject line", "body": "your email body"}`
+  },
+
+  cost_savings: {
+    name: 'Cost Savings Focus',
+    prompt: (lead, postSummary) => `You are an expert cold email writer specializing in pain-based outreach for accounting firms.
+
+Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
+
+${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
+
+CRITICAL REQUIREMENTS - COST SAVINGS ANGLE:
+- Subject line: 4-8 words, include number/cost, NO spam words
+  Examples: "saving $18K/year on tech", "$2,000/month tech waste?", "SaaS consolidation math"
+
+- Opening: Start with specific cost pain
+  * "Most CPA firms are spending $1,500-2,000/month across QuickBooks, Dropbox, DocuSign, payment processors..."
+  * "That tech stack adds up to $18K-24K per year—and it's all disconnected"
+  * "5-7 different SaaS subscriptions eating 50-70% of your monthly software budget"
+  * Use SPECIFIC numbers and dollar amounts
+
+- Middle: Present consolidation savings
+  * "What if you could cut that by 60-70% and get everything in one platform?"
+  * "Most firms save $12K-15K/year just by consolidating"
+  * "Military-grade secure, one login, one bill"
+  * Focus on: concrete savings, ROI, cost reduction
+  * Mention: typical payback period of 3-4 months
+
+- Close: Soft, consultative CTA
+  * "Worth running the numbers together?"
+  * "Curious what consolidation could save you specifically?"
+  * Sign off as "The Nexli Team"
+
+TONE: Financial advisor helping them find waste, not salesy.
+
+AVOID: Feature lists, "we do this/that", promotional language, hype
+
+Return ONLY valid JSON:
+{"subject": "your subject line", "body": "your email body"}`
+  },
+
+  time_efficiency: {
+    name: 'Time & Efficiency Focus',
+    prompt: (lead, postSummary) => `You are an expert cold email writer specializing in pain-based outreach for accounting firms.
+
+Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
+
+${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
+
+CRITICAL REQUIREMENTS - TIME/EFFICIENCY ANGLE:
+- Subject line: 4-8 words, mention "time" or "hours" or specific task, NO spam words
+  Examples: "12 hours of admin per week", "platform-switching time drain", "manual work elimination"
+
+- Opening: Start with time waste pain
+  * "How much time is your team spending switching between platforms and manually chasing documents?"
+  * "Most CPA firm owners tell me they lose 10-15 hours per week to admin work that shouldn't exist"
+  * "Platform-switching, manual data entry, invoice follow-ups—it adds up fast"
+  * Focus on TIME as the scarce resource (more valuable than money)
+
+- Middle: Present automation/efficiency gain
+  * "What if you could eliminate 12+ hours of manual work per week without hiring?"
+  * "One platform that handles client docs, invoicing, e-signatures, payment tracking—all automated"
+  * "Your team focuses on advisory work instead of admin busywork"
+  * Focus on: time savings, automation, leverage existing team
+  * Mention: military-grade security, unified dashboard
+
+- Close: Soft, consultative CTA
+  * "Worth 15 minutes to explore what you could automate?"
+  * "Open to seeing how other firms are saving this time?"
+  * Sign off as "The Nexli Team"
+
+TONE: Empathetic peer who knows they're overworked, not salesy.
+
+AVOID: Feature lists, "we do this/that", promotional language, hype
+
+Return ONLY valid JSON:
+{"subject": "your subject line", "body": "your email body"}`
+  }
+};
+
 export default async function handler(req, res) {
   // Debug logging
   console.log('API Key exists:', !!ANTHROPIC_API_KEY);
   console.log('API Key length:', ANTHROPIC_API_KEY?.length || 0);
-  console.log('All env vars:', Object.keys(process.env));
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -21,44 +137,23 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { lead, posts } = req.body;
+    const { lead, posts, variation } = req.body;
 
+    // Prepare post summary
     const postSummary = (posts || [])
       .slice(0, 5)
       .map((p, i) => `Post ${i + 1}: "${(p.text || p.postText || '').slice(0, 300)}"`)
       .join('\n');
 
-    const prompt = `You are an expert cold email writer specializing in pain-based outreach for accounting firms.
+    // Randomly select variation if not specified
+    const variationKeys = Object.keys(EMAIL_VARIATIONS);
+    const selectedVariation = variation || variationKeys[Math.floor(Math.random() * variationKeys.length)];
+    const variationConfig = EMAIL_VARIATIONS[selectedVariation];
 
-Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
+    console.log('Selected variation:', selectedVariation);
 
-${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant to their operational challenges.` : 'Use their role and company context.'}
-
-CRITICAL REQUIREMENTS:
-- Subject line: 6-10 words, pain-focused or curiosity-driven, NO spam words
-- Body: 3 short paragraphs max (keep it tight)
-- Opening: Start with THEIR pain point, not about us
-  * Common pains: Juggling 5-7 SaaS tools (QuickBooks, Dropbox, DocuSign, payment processors, email)
-  * High monthly SaaS costs stacking up ($500-2000/month on disconnected tools)
-  * Time wasted switching between platforms and manual data entry
-  * Security concerns with sensitive client data spread across multiple systems
-  * Client confusion from multiple logins
-
-- Middle: Briefly present the possibility (NOT a pitch)
-  * "What if you could consolidate all of that into one military-grade secure platform?"
-  * Mention 1-2 specific consolidation benefits: cost savings (50-70% reduction), time savings, or military-grade security
-  * DO NOT list features - focus on outcomes they care about
-
-- Close: Soft, consultative CTA
-  * "Worth a 15-minute conversation?" or similar low-pressure ask
-  * Sign off as "The Nexli Team"
-
-TONE: Consultative, empathetic, not salesy. Write like a peer who understands their struggles, not a vendor pitching.
-
-AVOID: Feature lists, "we do this/that", promotional language, hype words
-
-Return ONLY valid JSON:
-{"subject": "your subject line", "body": "your email body"}`;
+    // Generate prompt for selected variation
+    const prompt = variationConfig.prompt(lead, postSummary);
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -90,7 +185,13 @@ Return ONLY valid JSON:
     }
 
     const email = JSON.parse(jsonMatch[0]);
-    return res.json(email);
+
+    // Return email with variation metadata
+    return res.json({
+      ...email,
+      variation: selectedVariation,
+      variationName: variationConfig.name
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
