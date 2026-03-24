@@ -1346,6 +1346,213 @@ const Sidebar = ({
   );
 };
 
+// Performance Tracker Component for Email A/B Testing
+const PerformanceTracker = () => {
+  // Mock data - will be replaced with real Instantly metrics
+  const variations = [
+    {
+      id: 'ai_disruption',
+      name: 'AI Disruption & Ownership',
+      icon: '🤖',
+      color: '#2563EB',
+      bgColor: 'rgba(37, 99, 235, 0.08)',
+      sent: 127,
+      opens: 89,
+      replies: 23,
+      positiveReplies: 18,
+      openRate: 70.1,
+      replyRate: 18.1,
+      positiveReplyRate: 14.2,
+    },
+    {
+      id: 'cost_savings',
+      name: 'Cost Savings Focus',
+      icon: '💰',
+      color: '#10B981',
+      bgColor: 'rgba(16, 185, 129, 0.08)',
+      sent: 134,
+      opens: 76,
+      replies: 19,
+      positiveReplies: 14,
+      openRate: 56.7,
+      replyRate: 14.2,
+      positiveReplyRate: 10.4,
+    },
+    {
+      id: 'time_efficiency',
+      name: 'Time & Efficiency Focus',
+      icon: '⚡',
+      color: '#F59E0B',
+      bgColor: 'rgba(245, 158, 11, 0.08)',
+      sent: 119,
+      opens: 71,
+      replies: 16,
+      positiveReplies: 11,
+      openRate: 59.7,
+      replyRate: 13.4,
+      positiveReplyRate: 9.2,
+    },
+  ];
+
+  const winner = variations.reduce((prev, current) =>
+    current.openRate > prev.openRate ? current : prev
+  );
+
+  const minSendsForSignificance = 50;
+  const hasEnoughData = variations.every((v) => v.sent >= minSendsForSignificance);
+
+  return (
+    <div className="glass-card p-6 rounded-2xl">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h3 className="text-lg font-bold font-display mb-1" style={{ color: 'var(--text-primary)' }}>
+            Email Performance Tracker
+          </h3>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            A/B testing 3 email variations • {hasEnoughData ? '✅ Statistically significant' : `⏳ Need ${minSendsForSignificance}+ sends per variation`}
+          </p>
+        </div>
+        {hasEnoughData && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: winner.bgColor }}>
+            <span className="text-lg">{winner.icon}</span>
+            <span className="text-xs font-bold" style={{ color: winner.color }}>
+              {winner.name} Leading
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {variations.map((variation) => {
+          const isWinner = hasEnoughData && variation.id === winner.id;
+
+          return (
+            <div
+              key={variation.id}
+              className={cn(
+                'p-5 rounded-xl transition-all duration-300',
+                isWinner ? 'ring-2 scale-105' : 'hover:scale-102'
+              )}
+              style={{
+                background: variation.bgColor,
+                ringColor: isWinner ? variation.color : 'transparent',
+              }}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">{variation.icon}</span>
+                  <div>
+                    <h4 className="text-sm font-bold font-display" style={{ color: 'var(--text-primary)' }}>
+                      {variation.name}
+                    </h4>
+                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                      {variation.sent} sent
+                    </p>
+                  </div>
+                </div>
+                {isWinner && (
+                  <span
+                    className="text-xs font-bold px-2 py-1 rounded-full"
+                    style={{
+                      background: variation.color,
+                      color: 'white',
+                    }}
+                  >
+                    👑 Winner
+                  </span>
+                )}
+              </div>
+
+              {/* Metrics */}
+              <div className="space-y-3">
+                {/* Open Rate */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                      Open Rate
+                    </span>
+                    <span className="text-lg font-bold font-display" style={{ color: variation.color }}>
+                      {variation.openRate.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.05)' }}>
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${variation.openRate}%`,
+                        background: variation.color,
+                      }}
+                    ></div>
+                  </div>
+                  <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    {variation.opens} / {variation.sent} opened
+                  </p>
+                </div>
+
+                {/* Reply Rate */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                      Reply Rate
+                    </span>
+                    <span className="text-sm font-bold" style={{ color: variation.color }}>
+                      {variation.replyRate.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.05)' }}>
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${variation.replyRate}%`,
+                        background: variation.color,
+                      }}
+                    ></div>
+                  </div>
+                  <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    {variation.replies} replies
+                  </p>
+                </div>
+
+                {/* Positive Reply Rate */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                      Positive Replies
+                    </span>
+                    <span className="text-sm font-bold" style={{ color: variation.color }}>
+                      {variation.positiveReplyRate.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.05)' }}>
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${variation.positiveReplyRate}%`,
+                        background: variation.color,
+                      }}
+                    ></div>
+                  </div>
+                  <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    {variation.positiveReplies} interested
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Note about data source */}
+      <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+        <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
+          📊 Currently showing mock data • Connect Instantly.ai to track real performance
+        </p>
+      </div>
+    </div>
+  );
+};
+
 const StatCard = ({
   title,
   value,
@@ -1533,6 +1740,9 @@ const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: b
           </div>
         </div>
       )}
+
+      {/* Email Performance Tracker */}
+      <PerformanceTracker />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Chart */}
