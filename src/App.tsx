@@ -1008,6 +1008,8 @@ const Sidebar = ({
   campaigns,
   userProfile,
   user,
+  setUserProfile,
+  addNotification,
 }: {
   activeTab: string;
   setActiveTab: (t: string) => void;
@@ -1018,7 +1020,12 @@ const Sidebar = ({
   campaigns: Campaign[];
   userProfile: { full_name: string; profile_photo_url: string | null } | null;
   user: any;
+  setUserProfile: React.Dispatch<React.SetStateAction<{ full_name: string; profile_photo_url: string | null } | null>>;
+  addNotification: (type: string, title: string, message: string) => void;
 }) => {
+  const [editingName, setEditingName] = useState(false);
+  const [tempName, setTempName] = useState('');
+
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'scraper', label: 'Lead Scraper', icon: Search },
@@ -1026,6 +1033,28 @@ const Sidebar = ({
     { id: 'campaigns', label: 'Email Campaigns', icon: Mail },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
+
+  const handleSaveName = async () => {
+    if (!user || !tempName.trim()) {
+      setEditingName(false);
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ full_name: tempName.trim() })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      setUserProfile((prev) => prev ? { ...prev, full_name: tempName.trim() } : null);
+      addNotification('success', 'Name Updated', 'Your name has been updated successfully');
+      setEditingName(false);
+    } catch (error: any) {
+      addNotification('error', 'Update Failed', error.message);
+    }
+  };
 
   return (
     <>
@@ -1169,7 +1198,7 @@ const Sidebar = ({
 
       {/* Profile Section */}
       <div
-        className="p-4 rounded-2xl transition-colors duration-300"
+        className="p-4 rounded-2xl transition-colors duration-300 mt-6"
         style={{
           background: 'var(--bg-elevated)',
           border: '1px solid var(--border-color)',
@@ -1243,9 +1272,37 @@ const Sidebar = ({
             />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold truncate" style={{ color: 'var(--text-primary)' }}>
-              {userProfile?.full_name || 'User'}
-            </p>
+            {editingName ? (
+              <input
+                type="text"
+                value={tempName}
+                onChange={(e) => setTempName(e.target.value)}
+                onBlur={handleSaveName}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveName();
+                  if (e.key === 'Escape') setEditingName(false);
+                }}
+                autoFocus
+                className="text-xs font-bold w-full px-2 py-1 rounded border"
+                style={{
+                  color: 'var(--text-primary)',
+                  background: 'var(--bg-surface)',
+                  borderColor: 'var(--border-color)',
+                }}
+              />
+            ) : (
+              <p
+                className="text-xs font-bold truncate cursor-pointer hover:opacity-70 transition-opacity"
+                style={{ color: 'var(--text-primary)' }}
+                onClick={() => {
+                  setTempName(userProfile?.full_name || '');
+                  setEditingName(true);
+                }}
+                title="Click to edit name"
+              >
+                {userProfile?.full_name || 'Click to set name'}
+              </p>
+            )}
             <p className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
               {user?.email}
             </p>
@@ -4253,6 +4310,8 @@ export default function App() {
         campaigns={campaigns}
         userProfile={userProfile}
         user={user}
+        setUserProfile={setUserProfile}
+        addNotification={addNotification}
       />
 
       <main className="pt-16 md:pl-64 min-h-screen">
