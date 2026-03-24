@@ -1,8 +1,6 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -16,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const postSummary = (posts || [])
       .slice(0, 5)
-      .map((p: any, i: number) => `Post ${i + 1}: "${(p.text || p.postText || '').slice(0, 300)}"`)
+      .map((p, i) => `Post ${i + 1}: "${(p.text || p.postText || '').slice(0, 300)}"`)
       .join('\n');
 
     const prompt = `You are an expert cold email writer for Nexli, a premium automation agency that helps accounting firms scale with AI-powered solutions.
@@ -68,7 +66,7 @@ Return ONLY valid JSON with this exact format:
 
     const email = JSON.parse(jsonMatch[0]);
     return res.json(email);
-  } catch (error: any) {
+  } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 }
