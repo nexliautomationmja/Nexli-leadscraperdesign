@@ -1348,58 +1348,102 @@ const Sidebar = ({
 
 // Performance Tracker Component for Email A/B Testing
 const PerformanceTracker = () => {
-  // Mock data - will be replaced with real Instantly metrics
-  const variations = [
-    {
-      id: 'ai_disruption',
-      name: 'AI Disruption & Ownership',
-      icon: '🤖',
-      color: '#2563EB',
-      bgColor: 'rgba(37, 99, 235, 0.08)',
-      sent: 127,
-      opens: 89,
-      replies: 23,
-      positiveReplies: 18,
-      openRate: 70.1,
-      replyRate: 18.1,
-      positiveReplyRate: 14.2,
-    },
-    {
-      id: 'cost_savings',
-      name: 'Cost Savings Focus',
-      icon: '💰',
-      color: '#10B981',
-      bgColor: 'rgba(16, 185, 129, 0.08)',
-      sent: 134,
-      opens: 76,
-      replies: 19,
-      positiveReplies: 14,
-      openRate: 56.7,
-      replyRate: 14.2,
-      positiveReplyRate: 10.4,
-    },
-    {
-      id: 'time_efficiency',
-      name: 'Time & Efficiency Focus',
-      icon: '⚡',
-      color: '#F59E0B',
-      bgColor: 'rgba(245, 158, 11, 0.08)',
-      sent: 119,
-      opens: 71,
-      replies: 16,
-      positiveReplies: 11,
-      openRate: 59.7,
-      replyRate: 13.4,
-      positiveReplyRate: 9.2,
-    },
-  ];
+  const [variations, setVariations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<string>('');
 
-  const winner = variations.reduce((prev, current) =>
+  // Fetch performance data from Instantly
+  useEffect(() => {
+    const fetchPerformanceData = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('/api/instantly-performance');
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch performance data');
+        }
+
+        const data = await response.json();
+        setVariations(data.variations || []);
+        setLastUpdated(data.lastUpdated || new Date().toISOString());
+        setError('');
+      } catch (err: any) {
+        console.error('Performance fetch error:', err);
+        setError(err.message);
+        // Fallback to mock data if API fails
+        setVariations([
+          {
+            id: 'ai_disruption',
+            name: 'AI Disruption & Ownership',
+            icon: '🤖',
+            color: '#2563EB',
+            bgColor: 'rgba(37, 99, 235, 0.08)',
+            sent: 0,
+            opens: 0,
+            replies: 0,
+            positiveReplies: 0,
+            openRate: 0,
+            replyRate: 0,
+            positiveReplyRate: 0,
+          },
+          {
+            id: 'cost_savings',
+            name: 'Cost Savings Focus',
+            icon: '💰',
+            color: '#10B981',
+            bgColor: 'rgba(16, 185, 129, 0.08)',
+            sent: 0,
+            opens: 0,
+            replies: 0,
+            positiveReplies: 0,
+            openRate: 0,
+            replyRate: 0,
+            positiveReplyRate: 0,
+          },
+          {
+            id: 'time_efficiency',
+            name: 'Time & Efficiency Focus',
+            icon: '⚡',
+            color: '#F59E0B',
+            bgColor: 'rgba(245, 158, 11, 0.08)',
+            sent: 0,
+            opens: 0,
+            replies: 0,
+            positiveReplies: 0,
+            openRate: 0,
+            replyRate: 0,
+            positiveReplyRate: 0,
+          },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPerformanceData();
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchPerformanceData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const winner = variations.length > 0 ? variations.reduce((prev, current) =>
     current.openRate > prev.openRate ? current : prev
-  );
+  ) : null;
 
   const minSendsForSignificance = 50;
   const hasEnoughData = variations.every((v) => v.sent >= minSendsForSignificance);
+
+  if (loading) {
+    return (
+      <div className="glass-card p-6 rounded-2xl">
+        <div className="text-center py-8">
+          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p style={{ color: 'var(--text-muted)' }}>Loading performance data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="glass-card p-6 rounded-2xl">
@@ -1545,9 +1589,15 @@ const PerformanceTracker = () => {
 
       {/* Note about data source */}
       <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
-        <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
-          📊 Currently showing mock data • Connect Instantly.ai to track real performance
-        </p>
+        {error ? (
+          <p className="text-[10px] text-center" style={{ color: 'var(--status-failed-text)' }}>
+            ⚠️ {error} • Showing fallback data
+          </p>
+        ) : (
+          <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
+            📊 Live data from Instantly.ai {lastUpdated && `• Updated ${new Date(lastUpdated).toLocaleTimeString()}`}
+          </p>
+        )}
       </div>
     </div>
   );
