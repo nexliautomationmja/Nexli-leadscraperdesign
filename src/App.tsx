@@ -312,7 +312,7 @@ function parseCSVToLeads(csvText: string): Lead[] {
 
     const websiteUrl = getColumn(['website', 'company website', 'org website']);
     const lead: Lead = {
-      id: `lead-${Date.now()}-${i}`,
+      id: crypto.randomUUID(),
       name,
       email,
       company: getColumn(['company', 'company name', 'organization']),
@@ -344,7 +344,7 @@ function mapApifyLead(item: any, index: number): Lead {
   const seniority = item.seniority || '';
   const functional = item.personFunction || '';
   const lead: Lead = {
-    id: `lead-${Date.now()}-${index}`,
+    id: crypto.randomUUID(),
     name: item.fullName || 'Unknown',
     email: item.email || '',
     company: item.orgName || '',
@@ -4051,10 +4051,18 @@ export default function App() {
           }))
         );
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error details:', error);
+        console.error('Error message:', error.message);
+        console.error('Error code:', error.code);
+        console.error('Error hint:', error.hint);
+        console.error('Error details:', error.details);
+        throw error;
+      }
     } catch (error: any) {
       console.error('Error saving leads:', error);
-      addNotification('error', 'Sync Failed', 'Could not save leads to database');
+      console.error('Full error object:', JSON.stringify(error, null, 2));
+      addNotification('error', 'Sync Failed', error.message || 'Could not save leads to database');
       return;
     }
 
