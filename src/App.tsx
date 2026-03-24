@@ -40,7 +40,12 @@ import {
   Trash2,
   Clock,
   Edit,
+  LogOut,
+  Camera,
 } from 'lucide-react';
+import { supabase } from './lib/supabase';
+import { Auth } from './components/Auth';
+import type { User } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   XAxis,
@@ -3190,6 +3195,11 @@ function CampaignsView({
 
 // --- Main App ---
 export default function App() {
+  // Authentication state
+  const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<{ full_name: string; profile_photo_url: string | null } | null>(null);
+  const [loading, setLoading] = useState(true);
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
 
@@ -3301,6 +3311,147 @@ export default function App() {
     localStorage.setItem('nexli-scheduled-campaigns', JSON.stringify(scheduledCampaigns));
   }, [scheduledCampaigns]);
 
+  // Authentication check and data loading
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session?.user) {
+          setUser(session.user);
+
+          // Load user profile
+          const { data: profile } = await supabase
+            .from('users')
+            .select('full_name, profile_photo_url')
+            .eq('id', session.user.id)
+            .single();
+
+          if (profile) {
+            setUserProfile(profile);
+          }
+
+          // Load leads from database
+          const { data: leadsData } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false });
+
+          if (leadsData) {
+            setAllLeads(leadsData.map(lead => ({
+              id: lead.id,
+              name: lead.name,
+              email: lead.email,
+              company: lead.company,
+              role: lead.role,
+              linkedin: lead.linkedin || '',
+              location: lead.location || '',
+              score: lead.score,
+              tags: lead.tags || [],
+              status: 'verified' as const,
+            })));
+          }
+
+          // Load campaigns from database
+          const { data: campaignsData } = await supabase
+            .from('campaigns')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false });
+
+          if (campaignsData) {
+            setCampaigns(campaignsData.map(campaign => ({
+              id: campaign.id,
+              name: campaign.name,
+              createdAt: campaign.created_at,
+              status: campaign.status as any,
+              leadIds: [],
+              senderName: '',
+              senderEmail: '',
+              metrics: {
+                total: campaign.total_leads,
+                sent: campaign.emails_sent,
+                delivered: 0,
+                opened: campaign.opens,
+                clicked: 0,
+                replied: campaign.replies,
+                bounced: 0,
+              },
+              followUpSequence: campaign.follow_up_sequence,
+              abTest: campaign.ab_test,
+              scheduledSend: campaign.scheduled_send,
+            })));
+          }
+
+          // Load email templates from database
+          const { data: templatesData } = await supabase
+            .from('email_templates')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false });
+
+          if (templatesData) {
+            setEmailTemplates(templatesData.map(template => ({
+              id: template.id,
+              name: template.name,
+              description: template.description || undefined,
+              subject: template.subject,
+              body: template.body,
+              variables: template.variables,
+              createdAt: template.created_at,
+              usageCount: template.usage_count,
+            })));
+          }
+
+          // Load email logs from database
+          const { data: logsData } = await supabase
+            .from('email_logs')
+            .select(`
+              *,
+              leads:lead_id (name, email)
+            `)
+            .eq('user_id', session.user.id)
+            .order('sent_at', { ascending: false });
+
+          if (logsData) {
+            setEmailLogs(logsData.map(log => ({
+              id: log.id,
+              campaignId: log.campaign_id || '',
+              leadId: log.lead_id,
+              leadName: (log.leads as any)?.name || '',
+              leadEmail: (log.leads as any)?.email || '',
+              sentAt: log.sent_at,
+              status: log.status as any,
+              subject: log.subject,
+              body: log.body,
+            })));
+          }
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+      if (!session?.user) {
+        setUserProfile(null);
+        setAllLeads([]);
+        setCampaigns([]);
+        setEmailTemplates([]);
+        setEmailLogs([]);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Scheduled campaign scheduler - runs every minute
   useEffect(() => {
     const interval = setInterval(() => {
@@ -3386,7 +3537,35 @@ export default function App() {
     setNotifications([]);
   };
 
-  const handleLeadsFound = (newLeads: Lead[]) => {
+  const handleLeadsFound = async (newLeads: Lead[]) => {
+    if (!user) return;
+
+    // Save leads to Supabase
+    try {
+      const { error } = await supabase
+        .from('leads')
+        .insert(
+          newLeads.map((lead) => ({
+            id: lead.id,
+            user_id: user.id,
+            name: lead.name,
+            email: lead.email,
+            company: lead.company,
+            role: lead.role,
+            linkedin: lead.linkedin,
+            location: lead.city && lead.state ? `${lead.city}, ${lead.state}` : null,
+            score: lead.score,
+            tags: lead.tags || [],
+          }))
+        );
+
+      if (error) throw error;
+    } catch (error: any) {
+      console.error('Error saving leads:', error);
+      addNotification('error', 'Sync Failed', 'Could not save leads to database');
+      return;
+    }
+
     setAllLeads((prev) => [...newLeads, ...prev]);
 
     // Add notification for new leads
@@ -3394,7 +3573,7 @@ export default function App() {
       addNotification(
         'success',
         'New Leads Found!',
-        `Successfully scraped ${newLeads.length} new lead${newLeads.length > 1 ? 's' : ''}`,
+        `Successfully scraped ${newLeads.length} new lead${newLeads.length > 1 ? 's' : ''} and saved to your account`,
         'lead'
       );
     }
@@ -3488,22 +3667,62 @@ export default function App() {
     addNotification('success', 'Leads Exported', `Exported ${leadsToExport.length} leads to CSV`, 'lead');
   };
 
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
     if (!confirm(`Delete ${selectedLeads.size} selected leads?`)) return;
-    setAllLeads((prev) => prev.filter((l) => !selectedLeads.has(l.id)));
-    addNotification('success', 'Leads Deleted', `Deleted ${selectedLeads.size} leads`, 'lead');
-    setSelectedLeads(new Set());
+    if (!user) return;
+
+    const leadIds = Array.from(selectedLeads);
+
+    try {
+      const { error } = await supabase
+        .from('leads')
+        .delete()
+        .in('id', leadIds);
+
+      if (error) throw error;
+
+      setAllLeads((prev) => prev.filter((l) => !selectedLeads.has(l.id)));
+      addNotification('success', 'Leads Deleted', `Deleted ${selectedLeads.size} leads`, 'lead');
+      setSelectedLeads(new Set());
+    } catch (error: any) {
+      console.error('Error deleting leads:', error);
+      addNotification('error', 'Delete Failed', 'Could not delete leads from database');
+    }
   };
 
-  const handleBulkAddTag = (tagId: string) => {
-    setAllLeads((prev) =>
-      prev.map((l) =>
-        selectedLeads.has(l.id)
-          ? { ...l, tags: [...new Set([...(l.tags || []), tagId])] }
-          : l
-      )
-    );
-    addNotification('success', 'Tags Added', `Added tag to ${selectedLeads.size} leads`, 'lead');
+  const handleBulkAddTag = async (tagId: string) => {
+    if (!user) return;
+
+    const updatedLeadsMap = new Map<string, string[]>();
+
+    allLeads.forEach((lead) => {
+      if (selectedLeads.has(lead.id)) {
+        updatedLeadsMap.set(lead.id, [...new Set([...(lead.tags || []), tagId])]);
+      }
+    });
+
+    try {
+      // Update each lead in database
+      for (const [leadId, tags] of updatedLeadsMap.entries()) {
+        await supabase
+          .from('leads')
+          .update({ tags })
+          .eq('id', leadId)
+          .eq('user_id', user.id);
+      }
+
+      setAllLeads((prev) =>
+        prev.map((l) =>
+          selectedLeads.has(l.id)
+            ? { ...l, tags: [...new Set([...(l.tags || []), tagId])] }
+            : l
+        )
+      );
+      addNotification('success', 'Tags Added', `Added tag to ${selectedLeads.size} leads`, 'lead');
+    } catch (error: any) {
+      console.error('Error updating tags:', error);
+      addNotification('error', 'Tag Update Failed', 'Could not update tags in database');
+    }
   };
 
   const handleCSVUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -3511,12 +3730,40 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const text = e.target?.result as string;
       const leads = parseCSVToLeads(text);
+
       if (leads.length > 0) {
-        setAllLeads((prev) => [...leads, ...prev]);
-        addNotification('success', 'CSV Imported', `Imported ${leads.length} leads`, 'lead');
+        if (user) {
+          try {
+            // Save to Supabase
+            const { error } = await supabase
+              .from('leads')
+              .insert(
+                leads.map((lead) => ({
+                  id: lead.id,
+                  user_id: user.id,
+                  name: lead.name,
+                  email: lead.email,
+                  company: lead.company,
+                  role: lead.role,
+                  linkedin: lead.linkedin,
+                  location: lead.city && lead.state ? `${lead.city}, ${lead.state}` : null,
+                  score: lead.score,
+                  tags: lead.tags || [],
+                }))
+              );
+
+            if (error) throw error;
+
+            setAllLeads((prev) => [...leads, ...prev]);
+            addNotification('success', 'CSV Imported', `Imported ${leads.length} leads and saved to your account`, 'lead');
+          } catch (error: any) {
+            console.error('Error saving CSV leads:', error);
+            addNotification('error', 'Import Failed', 'Could not save leads to database');
+          }
+        }
       } else {
         addNotification('error', 'Import Failed', 'No valid leads found in CSV', 'error');
       }
@@ -3524,6 +3771,23 @@ export default function App() {
     reader.readAsText(file);
     event.target.value = '';
   };
+
+  // Show loading spinner while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-500 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-white animate-spin mx-auto mb-4" />
+          <p className="text-white text-lg">Loading Nexli...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show auth screen if not logged in
+  if (!user) {
+    return <Auth onAuthSuccess={() => setLoading(true)} />;
+  }
 
   return (
     <div
@@ -3981,6 +4245,115 @@ export default function App() {
                   </header>
 
                   <div className="glass-card p-8 rounded-2xl max-w-2xl space-y-8">
+                    {/* Profile */}
+                    <div>
+                      <h3
+                        className="text-sm font-bold uppercase tracking-wider mb-4"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        Profile
+                      </h3>
+                      <div className="space-y-6">
+                        {/* Profile Photo */}
+                        <div className="flex items-center gap-6">
+                          <div className="relative">
+                            {userProfile?.profile_photo_url ? (
+                              <img
+                                src={userProfile.profile_photo_url}
+                                alt="Profile"
+                                className="w-20 h-20 rounded-full object-cover border-4"
+                                style={{ borderColor: 'var(--border-color)' }}
+                              />
+                            ) : (
+                              <div
+                                className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white"
+                                style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+                              >
+                                {userProfile?.full_name?.charAt(0) || user?.email?.charAt(0)?.toUpperCase() || 'U'}
+                              </div>
+                            )}
+                            <label
+                              htmlFor="profile-photo-upload"
+                              className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center cursor-pointer hover:scale-110 transition-transform shadow-lg border-2 border-white dark:border-gray-900"
+                            >
+                              <Camera className="w-4 h-4 text-white" />
+                            </label>
+                            <input
+                              id="profile-photo-upload"
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file || !user) return;
+
+                                try {
+                                  // Upload to Supabase storage
+                                  const fileExt = file.name.split('.').pop();
+                                  const filePath = `${user.id}/avatar.${fileExt}`;
+
+                                  const { error: uploadError } = await supabase.storage
+                                    .from('profile-photos')
+                                    .upload(filePath, file, { upsert: true });
+
+                                  if (uploadError) throw uploadError;
+
+                                  // Get public URL
+                                  const { data } = supabase.storage
+                                    .from('profile-photos')
+                                    .getPublicUrl(filePath);
+
+                                  // Update user profile
+                                  const { error: updateError } = await supabase
+                                    .from('users')
+                                    .update({ profile_photo_url: data.publicUrl })
+                                    .eq('id', user.id);
+
+                                  if (updateError) throw updateError;
+
+                                  setUserProfile((prev) => prev ? { ...prev, profile_photo_url: data.publicUrl } : null);
+                                  addNotification('success', 'Photo Updated', 'Profile photo uploaded successfully');
+                                } catch (error: any) {
+                                  addNotification('error', 'Upload Failed', error.message);
+                                }
+
+                                e.target.value = '';
+                              }}
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
+                              {userProfile?.full_name || 'User'}
+                            </p>
+                            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                              {user?.email}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Sign Out Button */}
+                        <button
+                          onClick={async () => {
+                            await supabase.auth.signOut();
+                            setUser(null);
+                            setUserProfile(null);
+                            setAllLeads([]);
+                            setCampaigns([]);
+                            setEmailTemplates([]);
+                            setEmailLogs([]);
+                          }}
+                          className="w-full px-4 py-3 rounded-xl font-bold text-sm transition-all hover:opacity-80 flex items-center justify-center gap-2"
+                          style={{
+                            background: 'linear-gradient(135deg, #EF4444, #DC2626)',
+                            color: 'white',
+                          }}
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Sign Out
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Appearance */}
                     <div>
                       <h3
