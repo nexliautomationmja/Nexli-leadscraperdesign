@@ -141,6 +141,15 @@ interface EmailLog {
   errorMessage?: string;
 }
 
+interface ScheduledEmail {
+  id: string;
+  lead: Lead;
+  subject: string;
+  body: string;
+  scheduledFor: string; // ISO datetime
+  createdAt: string;
+}
+
 interface Notification {
   id: string;
   type: 'success' | 'info' | 'warning' | 'error';
@@ -606,6 +615,7 @@ const EmailGenerationModal = ({
   error,
   onClose,
   onSend,
+  onSchedule,
   canSend,
   isSending,
 }: {
@@ -615,12 +625,15 @@ const EmailGenerationModal = ({
   error: string;
   onClose: () => void;
   onSend: () => void;
+  onSchedule?: (scheduledFor: string, subject: string, body: string) => void;
   canSend: boolean;
   isSending: boolean;
 }) => {
   const [editedSubject, setEditedSubject] = React.useState(email?.subject || '');
   const [editedBody, setEditedBody] = React.useState(email?.body || '');
   const [isEditing, setIsEditing] = React.useState(false);
+  const [showScheduler, setShowScheduler] = React.useState(false);
+  const [scheduledDateTime, setScheduledDateTime] = React.useState('');
 
   React.useEffect(() => {
     if (email) {
@@ -877,26 +890,85 @@ const EmailGenerationModal = ({
                 Cancel
               </button>
               {canSend && (
-                <button
-                  onClick={() => {
-                    // Update the email with edited content before sending
-                    onSend();
-                  }}
-                  disabled={isSending}
-                  className="nexli-btn-gradient px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 shadow-xl hover:shadow-2xl transition-all disabled:opacity-50 hover:scale-105"
-                >
-                  {isSending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Sending...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      <span>Send Email</span>
-                    </>
+                <>
+                  {onSchedule && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowScheduler(!showScheduler)}
+                        className="px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 transition-all"
+                        style={{
+                          background: showScheduler ? 'rgba(251, 191, 36, 0.1)' : 'var(--bg-surface)',
+                          color: showScheduler ? '#F59E0B' : 'var(--text-secondary)',
+                          border: showScheduler ? '1px solid #F59E0B' : '1px solid var(--border-color)'
+                        }}
+                      >
+                        <Clock className="w-4 h-4" />
+                        <span>Schedule</span>
+                      </button>
+                      {showScheduler && (
+                        <div
+                          className="absolute bottom-full right-0 mb-2 glass-card rounded-xl p-4 shadow-xl z-50 min-w-[280px]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                            Schedule Send Time
+                          </label>
+                          <input
+                            type="datetime-local"
+                            value={scheduledDateTime}
+                            onChange={(e) => setScheduledDateTime(e.target.value)}
+                            min={new Date().toISOString().slice(0, 16)}
+                            className="w-full px-3 py-2 rounded-lg text-sm outline-none border transition-all mb-3"
+                            style={{
+                              background: 'var(--bg-elevated)',
+                              color: 'var(--text-primary)',
+                              borderColor: 'var(--border-color)',
+                            }}
+                          />
+                          <button
+                            onClick={() => {
+                              if (scheduledDateTime && onSchedule) {
+                                onSchedule(scheduledDateTime, editedSubject, editedBody);
+                                setShowScheduler(false);
+                                setScheduledDateTime('');
+                              }
+                            }}
+                            disabled={!scheduledDateTime}
+                            className="w-full px-4 py-2 rounded-lg text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                            style={{
+                              background: scheduledDateTime ? 'rgba(251, 191, 36, 0.1)' : 'var(--bg-elevated)',
+                              color: scheduledDateTime ? '#F59E0B' : 'var(--text-muted)',
+                              border: `1px solid ${scheduledDateTime ? '#F59E0B' : 'var(--border-color)'}`,
+                            }}
+                          >
+                            <Clock className="w-4 h-4" />
+                            <span>Schedule Send</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
-                </button>
+                  <button
+                    onClick={() => {
+                      // Update the email with edited content before sending
+                      onSend();
+                    }}
+                    disabled={isSending}
+                    className="nexli-btn-gradient px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 shadow-xl hover:shadow-2xl transition-all disabled:opacity-50 hover:scale-105"
+                  >
+                    {isSending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Sending...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>Send Now</span>
+                      </>
+                    )}
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -2287,6 +2359,31 @@ const ScraperView = ({
     }
   };
 
+  const handleScheduleEmail = (scheduledFor: string, subject: string, body: string) => {
+    if (!selectedLead) return;
+
+    const newScheduledEmail: ScheduledEmail = {
+      id: `scheduled-${Date.now()}-${Math.random()}`,
+      lead: selectedLead,
+      subject,
+      body,
+      scheduledFor,
+      createdAt: new Date().toISOString(),
+    };
+
+    setScheduledEmails(prev => [...prev, newScheduledEmail]);
+    addNotification(
+      'success',
+      'Email Scheduled',
+      `Email to ${selectedLead.name} scheduled for ${new Date(scheduledFor).toLocaleString()}`,
+      'email'
+    );
+
+    // Close modal
+    setSelectedLead(null);
+    setGeneratedEmail(null);
+  };
+
   const handleCloseEmailModal = () => {
     setSelectedLead(null);
     setGeneratedEmail(null);
@@ -3286,6 +3383,7 @@ const ScraperView = ({
             error={emailError}
             onClose={handleCloseEmailModal}
             onSend={handleSendEmail}
+            onSchedule={handleScheduleEmail}
             canSend={!!generatedEmail && !isGeneratingEmail}
             isSending={isSendingEmail}
           />
@@ -4386,6 +4484,12 @@ export default function App() {
   const [emailErrorForLead, setEmailErrorForLead] = useState('');
   const [isSendingEmailForLead, setIsSendingEmailForLead] = useState(false);
 
+  // Scheduled emails state
+  const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>(() => {
+    const stored = localStorage.getItem('nexli-scheduled-emails');
+    return stored ? JSON.parse(stored) : [];
+  });
+
   // Feature states (8 advanced features)
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
@@ -4460,6 +4564,11 @@ export default function App() {
     localStorage.setItem('nexli-notifications', JSON.stringify(notifications));
   }, [notifications]);
 
+  // Persist scheduled emails to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexli-scheduled-emails', JSON.stringify(scheduledEmails));
+  }, [scheduledEmails]);
+
   // Persist email templates to localStorage
   useEffect(() => {
     localStorage.setItem('nexli-email-templates', JSON.stringify(emailTemplates));
@@ -4469,6 +4578,60 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('nexli-scheduled-campaigns', JSON.stringify(scheduledCampaigns));
   }, [scheduledCampaigns]);
+
+  // Email Scheduler - Check every minute for scheduled emails to send
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+
+      scheduledEmails.forEach(async (scheduledEmail) => {
+        const scheduledTime = new Date(scheduledEmail.scheduledFor);
+
+        // If scheduled time has passed, send the email
+        if (now >= scheduledTime) {
+          try {
+            // Send email via Instantly.ai
+            const response = await fetch('/api/send-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: scheduledEmail.lead.email,
+                subject: scheduledEmail.subject,
+                body: scheduledEmail.body,
+                leadName: scheduledEmail.lead.name,
+              }),
+            });
+
+            if (response.ok) {
+              // Remove from scheduled emails
+              setScheduledEmails(prev => prev.filter(e => e.id !== scheduledEmail.id));
+
+              // Add to email logs
+              const newLog: EmailLog = {
+                id: `log-${Date.now()}-${Math.random()}`,
+                campaignId: 'scheduled',
+                leadId: scheduledEmail.lead.id,
+                leadName: scheduledEmail.lead.name,
+                leadEmail: scheduledEmail.lead.email,
+                sentAt: new Date().toISOString(),
+                status: 'sent',
+                subject: scheduledEmail.subject,
+                body: scheduledEmail.body,
+              };
+              setEmailLogs(prev => [newLog, ...prev]);
+
+              // Show notification
+              addNotification('success', 'Scheduled Email Sent', `Email sent to ${scheduledEmail.lead.name}`, 'email');
+            }
+          } catch (error) {
+            console.error('Failed to send scheduled email:', error);
+          }
+        }
+      });
+    }, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [scheduledEmails]);
 
   // Authentication check and data loading
   useEffect(() => {
@@ -4956,6 +5119,31 @@ export default function App() {
     } finally {
       setIsSendingEmailForLead(false);
     }
+  };
+
+  const handleScheduleEmailForLead = (scheduledFor: string, subject: string, body: string) => {
+    if (!selectedLeadForEmail) return;
+
+    const newScheduledEmail: ScheduledEmail = {
+      id: `scheduled-${Date.now()}-${Math.random()}`,
+      lead: selectedLeadForEmail,
+      subject,
+      body,
+      scheduledFor,
+      createdAt: new Date().toISOString(),
+    };
+
+    setScheduledEmails(prev => [...prev, newScheduledEmail]);
+    addNotification(
+      'success',
+      'Email Scheduled',
+      `Email to ${selectedLeadForEmail.name} scheduled for ${new Date(scheduledFor).toLocaleString()}`,
+      'email'
+    );
+
+    // Close modal
+    setSelectedLeadForEmail(null);
+    setGeneratedEmailForLead(null);
   };
 
   const handleCloseEmailModalForLead = () => {
@@ -6265,6 +6453,7 @@ export default function App() {
             error={emailErrorForLead}
             onClose={handleCloseEmailModalForLead}
             onSend={handleSendEmailForLead}
+            onSchedule={handleScheduleEmailForLead}
             canSend={!!generatedEmailForLead && !isGeneratingEmailForLead}
             isSending={isSendingEmailForLead}
           />
