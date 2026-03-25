@@ -14,11 +14,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { to, subject, body, campaignId, leadId } = req.body;
+    const { to, subject, body, campaignId, leadId, fromEmail, fromName } = req.body;
 
     if (!to || !subject || !body) {
       return res.status(400).json({ error: 'to, subject, and body are required' });
     }
+
+    // Use dynamic sender (for rotation) or fall back to env variables
+    const senderEmail = fromEmail || FROM_EMAIL;
+    const senderName = fromName || FROM_NAME;
 
     // Send via Instantly.ai API
     const response = await fetch('https://api.instantly.ai/api/v1/send/email', {
@@ -31,8 +35,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         to,
         subject,
         body,
-        from_email: FROM_EMAIL, // Configure in Vercel: FROM_EMAIL=justine@outreach.nexli.com
-        from_name: FROM_NAME,
+        from_email: senderEmail, // Rotated sender or default from env
+        from_name: senderName,
         track_opens: true,
         track_clicks: true,
         custom_fields: {

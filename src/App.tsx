@@ -139,6 +139,8 @@ interface EmailLog {
   subject: string;
   body?: string;
   errorMessage?: string;
+  senderName?: string; // For A/B/C/D testing sender performance
+  senderEmail?: string;
 }
 
 interface ScheduledEmail {
@@ -147,6 +149,8 @@ interface ScheduledEmail {
   subject: string;
   body: string;
   scheduledFor: string; // ISO datetime
+  senderName: string; // Auto-assigned via rotation
+  senderEmail: string;
   createdAt: string;
 }
 
@@ -189,6 +193,14 @@ const LEAD_TAGS = [
   { id: 'replied', label: 'Replied', color: '#10B981', bg: 'rgba(16, 185, 129, 0.12)' },
   { id: 'closed-won', label: 'Closed Won', color: '#059669', bg: 'rgba(5, 150, 105, 0.12)' },
   { id: 'not-interested', label: 'Not Interested', color: '#DC2626', bg: 'rgba(220, 38, 38, 0.12)' },
+];
+
+// Sender Email Rotation - A/B/C/D Testing
+const SENDER_EMAILS = [
+  { name: 'Marcel', email: 'Marcel@nexlioutreach.net', color: '#3B82F6' },
+  { name: 'Justine', email: 'Justine@nexlioutreach.net', color: '#8B5CF6' },
+  { name: 'Bernice', email: 'Bernice@nexlioutreach.net', color: '#EC4899' },
+  { name: 'Jian', email: 'Jian@nexlioutreach.net', color: '#10B981' },
 ];
 
 // --- Lead Scoring ---
@@ -244,6 +256,12 @@ function exportLeadsToCSV(leads: Lead[]) {
   a.download = `nexli-leads-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// Sender Email Rotation - Get next sender in round-robin fashion
+function getNextSender(currentIndex: number): { name: string; email: string; color: string; index: number } {
+  const nextIndex = (currentIndex + 1) % SENDER_EMAILS.length;
+  return { ...SENDER_EMAILS[nextIndex], index: nextIndex };
 }
 
 // Fill email template with lead data
@@ -1996,7 +2014,15 @@ const StatCard = ({
   </div>
 );
 
-const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: boolean }) => {
+const DashboardView = ({
+  recentLeads,
+  isDark,
+  emailLogs
+}: {
+  recentLeads: Lead[];
+  isDark: boolean;
+  emailLogs: EmailLog[];
+}) => {
   // Calculate lead tier breakdown
   const hotLeads = recentLeads.filter((l) => l.score >= 60).length;
   const warmLeads = recentLeads.filter((l) => l.score >= 30 && l.score < 60).length;
@@ -2133,6 +2159,130 @@ const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: b
           </div>
         </div>
       )}
+
+      {/* Sender Performance A/B/C/D Testing */}
+      {emailLogs.length > 0 && (() => {
+        // Calculate metrics for each sender
+        const senderMetrics = SENDER_EMAILS.map(sender => {
+          const senderLogs = emailLogs.filter(log => log.senderEmail === sender.email);
+          const totalSent = senderLogs.length;
+          const opened = senderLogs.filter(log => log.status === 'opened').length;
+          const clicked = senderLogs.filter(log => log.status === 'clicked').length;
+          const replied = senderLogs.filter(log => log.status === 'replied').length;
+
+          return {
+            name: sender.name,
+            email: sender.email,
+            color: sender.color,
+            totalSent,
+            openRate: totalSent > 0 ? ((opened / totalSent) * 100).toFixed(1) : '0.0',
+            clickRate: totalSent > 0 ? ((clicked / totalSent) * 100).toFixed(1) : '0.0',
+            replyRate: totalSent > 0 ? ((replied / totalSent) * 100).toFixed(1) : '0.0',
+          };
+        });
+
+        const bestPerformer = senderMetrics.reduce((best, current) =>
+          parseFloat(current.replyRate) > parseFloat(best.replyRate) ? current : best
+        , senderMetrics[0]);
+
+        return (
+          <div className="glass-card p-6 rounded-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-lg font-bold font-display flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                  <Users className="w-5 h-5" style={{ color: '#8B5CF6' }} />
+                  Sender Performance (A/B/C/D Testing)
+                </h3>
+                <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                  Auto-rotating between {SENDER_EMAILS.length} senders to optimize results
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Top Performer</p>
+                <p className="text-xl font-bold font-display" style={{ color: bestPerformer.color }}>
+                  {bestPerformer.name}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {senderMetrics.map((sender, idx) => (
+                <div
+                  key={sender.email}
+                  className="p-4 rounded-xl border-2 transition-all hover:scale-105"
+                  style={{
+                    background: `${sender.color}08`,
+                    borderColor: sender.name === bestPerformer.name ? sender.color : 'transparent',
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider" style={{ color: sender.color }}>
+                        {sender.name}
+                      </p>
+                      <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        {sender.email.split('@')[0]}@...
+                      </p>
+                    </div>
+                    {sender.name === bestPerformer.name && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: sender.color, color: '#fff' }}>
+                        ★ Best
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span style={{ color: 'var(--text-muted)' }}>Sent</span>
+                        <span className="font-bold" style={{ color: 'var(--text-primary)' }}>
+                          {sender.totalSent}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span style={{ color: 'var(--text-muted)' }}>Open Rate</span>
+                        <span className="font-bold" style={{ color: sender.color }}>
+                          {sender.openRate}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${sender.openRate}%`,
+                            background: sender.color,
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span style={{ color: 'var(--text-muted)' }}>Reply Rate</span>
+                        <span className="font-bold" style={{ color: sender.color }}>
+                          {sender.replyRate}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${sender.replyRate}%`,
+                            background: sender.color,
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Email Performance Tracker */}
       <PerformanceTracker />
@@ -2319,9 +2469,17 @@ const DashboardView = ({ recentLeads, isDark }: { recentLeads: Lead[]; isDark: b
 const ScraperView = ({
   onLeadsFound,
   isDark,
+  senderRotationIndex,
+  setSenderRotationIndex,
+  setScheduledEmails,
+  addNotification,
 }: {
   onLeadsFound: (leads: Lead[]) => void;
   isDark: boolean;
+  senderRotationIndex: number;
+  setSenderRotationIndex: (index: number) => void;
+  setScheduledEmails: React.Dispatch<React.SetStateAction<ScheduledEmail[]>>;
+  addNotification: (type: string, title: string, message: string, icon: string) => void;
 }) => {
   const [query, setQuery] = useState('');
   const [isScraping, setIsScraping] = useState(false);
@@ -2442,12 +2600,18 @@ const ScraperView = ({
   const handleScheduleEmail = (scheduledFor: string, subject: string, body: string) => {
     if (!selectedLead) return;
 
+    // Get next sender via auto-rotation
+    const sender = getNextSender(senderRotationIndex);
+    setSenderRotationIndex(sender.index);
+
     const newScheduledEmail: ScheduledEmail = {
       id: `scheduled-${Date.now()}-${Math.random()}`,
       lead: selectedLead,
       subject,
       body,
       scheduledFor,
+      senderName: sender.name,
+      senderEmail: sender.email,
       createdAt: new Date().toISOString(),
     };
 
@@ -2455,7 +2619,7 @@ const ScraperView = ({
     addNotification(
       'success',
       'Email Scheduled',
-      `Email to ${selectedLead.name} scheduled for ${new Date(scheduledFor).toLocaleString()}`,
+      `Email to ${selectedLead.name} scheduled for ${new Date(scheduledFor).toLocaleString()} (from ${sender.name})`,
       'email'
     );
 
@@ -4570,6 +4734,12 @@ export default function App() {
     return stored ? JSON.parse(stored) : [];
   });
 
+  // Sender rotation index for A/B/C/D testing
+  const [senderRotationIndex, setSenderRotationIndex] = useState(() => {
+    const stored = localStorage.getItem('nexli-sender-rotation-index');
+    return stored ? parseInt(stored) : 0;
+  });
+
   // Feature states (8 advanced features)
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
@@ -4659,6 +4829,11 @@ export default function App() {
     localStorage.setItem('nexli-scheduled-campaigns', JSON.stringify(scheduledCampaigns));
   }, [scheduledCampaigns]);
 
+  // Persist sender rotation index to localStorage
+  useEffect(() => {
+    localStorage.setItem('nexli-sender-rotation-index', String(senderRotationIndex));
+  }, [senderRotationIndex]);
+
   // Email Scheduler - Check every minute for scheduled emails to send
   useEffect(() => {
     const interval = setInterval(() => {
@@ -4670,7 +4845,7 @@ export default function App() {
         // If scheduled time has passed, send the email
         if (now >= scheduledTime) {
           try {
-            // Send email via Instantly.ai
+            // Send email via Instantly.ai with rotated sender
             const response = await fetch('/api/send-email', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -4679,6 +4854,8 @@ export default function App() {
                 subject: scheduledEmail.subject,
                 body: scheduledEmail.body,
                 leadName: scheduledEmail.lead.name,
+                fromEmail: scheduledEmail.senderEmail,
+                fromName: scheduledEmail.senderName,
               }),
             });
 
@@ -4686,7 +4863,7 @@ export default function App() {
               // Remove from scheduled emails
               setScheduledEmails(prev => prev.filter(e => e.id !== scheduledEmail.id));
 
-              // Add to email logs
+              // Add to email logs with sender info for A/B/C/D testing
               const newLog: EmailLog = {
                 id: `log-${Date.now()}-${Math.random()}`,
                 campaignId: 'scheduled',
@@ -4697,6 +4874,8 @@ export default function App() {
                 status: 'sent',
                 subject: scheduledEmail.subject,
                 body: scheduledEmail.body,
+                senderName: scheduledEmail.senderName,
+                senderEmail: scheduledEmail.senderEmail,
               };
               setEmailLogs(prev => [newLog, ...prev]);
 
@@ -5204,12 +5383,18 @@ export default function App() {
   const handleScheduleEmailForLead = (scheduledFor: string, subject: string, body: string) => {
     if (!selectedLeadForEmail) return;
 
+    // Get next sender via auto-rotation
+    const sender = getNextSender(senderRotationIndex);
+    setSenderRotationIndex(sender.index);
+
     const newScheduledEmail: ScheduledEmail = {
       id: `scheduled-${Date.now()}-${Math.random()}`,
       lead: selectedLeadForEmail,
       subject,
       body,
       scheduledFor,
+      senderName: sender.name,
+      senderEmail: sender.email,
       createdAt: new Date().toISOString(),
     };
 
@@ -5217,7 +5402,7 @@ export default function App() {
     addNotification(
       'success',
       'Email Scheduled',
-      `Email to ${selectedLeadForEmail.name} scheduled for ${new Date(scheduledFor).toLocaleString()}`,
+      `Email to ${selectedLeadForEmail.name} scheduled for ${new Date(scheduledFor).toLocaleString()} (from ${sender.name})`,
       'email'
     );
 
@@ -5599,10 +5784,17 @@ export default function App() {
               transition={{ duration: 0.3, ease: 'easeOut' }}
             >
               {activeTab === 'dashboard' && (
-                <DashboardView recentLeads={allLeads} isDark={isDark} />
+                <DashboardView recentLeads={allLeads} isDark={isDark} emailLogs={emailLogs} />
               )}
               {activeTab === 'scraper' && (
-                <ScraperView onLeadsFound={handleLeadsFound} isDark={isDark} />
+                <ScraperView
+                  onLeadsFound={handleLeadsFound}
+                  isDark={isDark}
+                  senderRotationIndex={senderRotationIndex}
+                  setSenderRotationIndex={setSenderRotationIndex}
+                  setScheduledEmails={setScheduledEmails}
+                  addNotification={addNotification}
+                />
               )}
               {activeTab === 'leads' && (
                 <div className="space-y-8">
