@@ -194,13 +194,19 @@ function calculateLeadScore(lead: {
   let score = 0;
   if (lead.status === 'verified') score += 20;
   if (lead.linkedin) score += 10;
-  const size = lead.orgSize || '';
+
+  // Safe string conversion with type checking
+  const size = String(lead.orgSize || '');
   if (size.includes('1-10') || size.includes('11-20') || size.includes('21-50')) score += 20;
-  const sen = (lead.seniority || '').toLowerCase();
+
+  const sen = String(lead.seniority || '').toLowerCase();
   if (['c-suite', 'owner', 'partner', 'founder'].some((s) => sen.includes(s))) score += 25;
+
   if (lead.orgWebsite) score += 10;
-  const fn = (lead.functional || '').toLowerCase();
+
+  const fn = String(lead.functional || '').toLowerCase();
   if (fn.includes('accounting') || fn.includes('finance')) score += 10;
+
   return Math.min(score, 95);
 }
 
