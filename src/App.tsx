@@ -197,10 +197,10 @@ const LEAD_TAGS = [
 
 // Sender Email Rotation - A/B/C/D Testing
 const SENDER_EMAILS = [
-  { name: 'Marcel', email: 'Marcel@nexlioutreach.net', color: '#3B82F6' },
-  { name: 'Justine', email: 'Justine@nexlioutreach.net', color: '#8B5CF6' },
-  { name: 'Bernice', email: 'Bernice@nexlioutreach.net', color: '#EC4899' },
-  { name: 'Jian', email: 'Jian@nexlioutreach.net', color: '#10B981' },
+  { name: 'Marcel', email: 'Marcel@nexlioutreach.net', color: '#3B82F6', photo: '/sender-photos/marcel.png' },
+  { name: 'Justine', email: 'Justine@nexlioutreach.net', color: '#8B5CF6', photo: '/sender-photos/justine.png' },
+  { name: 'Bernice', email: 'Bernice@nexlioutreach.net', color: '#EC4899', photo: '/sender-photos/bernice.png' },
+  { name: 'Jian', email: 'Jian@nexlioutreach.net', color: '#10B981', photo: '/sender-photos/jian.png' },
 ];
 
 // --- Lead Scoring ---
@@ -2174,6 +2174,7 @@ const DashboardView = ({
             name: sender.name,
             email: sender.email,
             color: sender.color,
+            photo: sender.photo,
             totalSent,
             openRate: totalSent > 0 ? ((opened / totalSent) * 100).toFixed(1) : '0.0',
             clickRate: totalSent > 0 ? ((clicked / totalSent) * 100).toFixed(1) : '0.0',
@@ -2185,100 +2186,169 @@ const DashboardView = ({
           parseFloat(current.replyRate) > parseFloat(best.replyRate) ? current : best
         , senderMetrics[0]);
 
+        const minSendsForSignificance = 10;
+        const hasEnoughData = senderMetrics.every((s) => s.totalSent >= minSendsForSignificance);
+
         return (
           <div className="glass-card p-6 rounded-2xl">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-lg font-bold font-display flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                  <Users className="w-5 h-5" style={{ color: '#8B5CF6' }} />
-                  Sender Performance (A/B/C/D Testing)
+                <h3 className="text-lg font-bold font-display mb-1" style={{ color: 'var(--text-primary)' }}>
+                  Sender Performance Tracker
                 </h3>
-                <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-                  Auto-rotating between {SENDER_EMAILS.length} senders to optimize results
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  A/B/C/D testing {SENDER_EMAILS.length} sender personas • {hasEnoughData ? '✅ Statistically significant' : `⏳ Need ${minSendsForSignificance}+ sends per sender`}
                 </p>
               </div>
-              <div className="text-right">
-                <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Top Performer</p>
-                <p className="text-xl font-bold font-display" style={{ color: bestPerformer.color }}>
-                  {bestPerformer.name}
-                </p>
-              </div>
+              {hasEnoughData && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: `${bestPerformer.color}15` }}>
+                  <img
+                    src={bestPerformer.photo}
+                    alt={bestPerformer.name}
+                    className="w-6 h-6 rounded-full object-cover"
+                    style={{ border: `2px solid ${bestPerformer.color}` }}
+                  />
+                  <span className="text-xs font-bold" style={{ color: bestPerformer.color }}>
+                    {bestPerformer.name} Leading
+                  </span>
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {senderMetrics.map((sender, idx) => (
-                <div
-                  key={sender.email}
-                  className="p-4 rounded-xl border-2 transition-all hover:scale-105"
-                  style={{
-                    background: `${sender.color}08`,
-                    borderColor: sender.name === bestPerformer.name ? sender.color : 'transparent',
-                  }}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wider" style={{ color: sender.color }}>
-                        {sender.name}
-                      </p>
-                      <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        {sender.email.split('@')[0]}@...
-                      </p>
-                    </div>
-                    {sender.name === bestPerformer.name && (
-                      <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: sender.color, color: '#fff' }}>
-                        ★ Best
-                      </span>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+              {senderMetrics.map((sender) => {
+                const isWinner = hasEnoughData && sender.name === bestPerformer.name;
+
+                return (
+                  <div
+                    key={sender.email}
+                    className={cn(
+                      'p-5 rounded-xl transition-all duration-300',
+                      isWinner ? 'ring-2 scale-105' : 'hover:scale-102'
                     )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <div>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span style={{ color: 'var(--text-muted)' }}>Sent</span>
-                        <span className="font-bold" style={{ color: 'var(--text-primary)' }}>
-                          {sender.totalSent}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span style={{ color: 'var(--text-muted)' }}>Open Rate</span>
-                        <span className="font-bold" style={{ color: sender.color }}>
-                          {sender.openRate}%
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      background: `${sender.color}08`,
+                      ringColor: isWinner ? sender.color : 'transparent',
+                    }}
+                  >
+                    {/* Header with Profile Photo */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        {/* Profile Photo */}
+                        <img
+                          src={sender.photo}
+                          alt={sender.name}
+                          className="w-10 h-10 rounded-full object-cover"
                           style={{
-                            width: `${sender.openRate}%`,
-                            background: sender.color,
+                            border: `2px solid ${sender.color}`,
                           }}
-                        ></div>
+                        />
+                        <div>
+                          <h4 className="text-sm font-bold font-display" style={{ color: 'var(--text-primary)' }}>
+                            {sender.name}
+                          </h4>
+                          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                            {sender.totalSent} sent
+                          </p>
+                        </div>
                       </div>
+                      {isWinner && (
+                        <span
+                          className="text-xs font-bold px-2 py-1 rounded-full"
+                          style={{
+                            background: sender.color,
+                            color: 'white',
+                          }}
+                        >
+                          👑 Winner
+                        </span>
+                      )}
                     </div>
 
-                    <div>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span style={{ color: 'var(--text-muted)' }}>Reply Rate</span>
-                        <span className="font-bold" style={{ color: sender.color }}>
-                          {sender.replyRate}%
-                        </span>
+                    {/* Metrics */}
+                    <div className="space-y-3">
+                      {/* Open Rate */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                            Open Rate
+                          </span>
+                          <span className="text-lg font-bold font-display" style={{ color: sender.color }}>
+                            {sender.openRate}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.05)' }}>
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${sender.openRate}%`,
+                              background: sender.color,
+                            }}
+                          ></div>
+                        </div>
+                        <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                          {Math.round((parseFloat(sender.openRate) / 100) * sender.totalSent)} / {sender.totalSent} opened
+                        </p>
                       </div>
-                      <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{
-                            width: `${sender.replyRate}%`,
-                            background: sender.color,
-                          }}
-                        ></div>
+
+                      {/* Reply Rate */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                            Reply Rate
+                          </span>
+                          <span className="text-sm font-bold" style={{ color: sender.color }}>
+                            {sender.replyRate}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.05)' }}>
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${sender.replyRate}%`,
+                              background: sender.color,
+                            }}
+                          ></div>
+                        </div>
+                        <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                          {Math.round((parseFloat(sender.replyRate) / 100) * sender.totalSent)} replies
+                        </p>
+                      </div>
+
+                      {/* Click Rate */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                            Click Rate
+                          </span>
+                          <span className="text-sm font-bold" style={{ color: sender.color }}>
+                            {sender.clickRate}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.05)' }}>
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${sender.clickRate}%`,
+                              background: sender.color,
+                            }}
+                          ></div>
+                        </div>
+                        <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                          {Math.round((parseFloat(sender.clickRate) / 100) * sender.totalSent)} clicked
+                        </p>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
+            </div>
+
+            {/* Note about auto-rotation */}
+            <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
+                🔄 Auto-rotating senders • Emails distributed evenly across all {SENDER_EMAILS.length} personas
+              </p>
             </div>
           </div>
         );
