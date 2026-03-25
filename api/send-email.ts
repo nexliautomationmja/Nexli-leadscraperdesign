@@ -1,6 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const INSTANTLY_API_KEY = process.env.INSTANTLY_API_KEY;
+const FROM_EMAIL = process.env.FROM_EMAIL || 'justine@nexli.com'; // Use subdomain like justine@outreach.nexli.com
+const FROM_NAME = process.env.FROM_NAME || 'Justine';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -29,8 +31,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         to,
         subject,
         body,
-        from_email: 'justine@nexli.com', // Your COO's email
-        from_name: 'Justine',
+        from_email: FROM_EMAIL, // Configure in Vercel: FROM_EMAIL=justine@outreach.nexli.com
+        from_name: FROM_NAME,
         track_opens: true,
         track_clicks: true,
         custom_fields: {
