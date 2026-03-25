@@ -5676,6 +5676,117 @@ export default function App() {
                     </div>
                   </header>
 
+                  {/* Scheduled Emails Banner */}
+                  {scheduledEmails.length > 0 && (
+                    <div
+                      className="glass-card rounded-2xl p-4 flex items-start sm:items-center justify-between gap-4 flex-col sm:flex-row"
+                      style={{
+                        background: 'rgba(245, 158, 11, 0.05)',
+                        border: '1px solid rgba(245, 158, 11, 0.3)',
+                      }}
+                    >
+                      <div className="flex items-start gap-4">
+                        <div
+                          className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
+                          style={{
+                            background: 'rgba(245, 158, 11, 0.15)',
+                            color: '#F59E0B',
+                          }}
+                        >
+                          <Clock className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
+                            {scheduledEmails.length} Email{scheduledEmails.length > 1 ? 's' : ''} Scheduled
+                          </h3>
+                          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                            {(() => {
+                              const nextEmail = scheduledEmails.sort((a, b) =>
+                                new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime()
+                              )[0];
+                              const scheduledTime = new Date(nextEmail.scheduledFor);
+                              const now = new Date();
+                              const diffMs = scheduledTime.getTime() - now.getTime();
+                              const diffMins = Math.floor(diffMs / 60000);
+                              const diffHours = Math.floor(diffMins / 60);
+                              const diffDays = Math.floor(diffHours / 24);
+
+                              let timeText = '';
+                              if (diffMins < 0) {
+                                timeText = 'Sending now...';
+                              } else if (diffMins < 60) {
+                                timeText = `in ${diffMins} minute${diffMins !== 1 ? 's' : ''}`;
+                              } else if (diffHours < 24) {
+                                timeText = `in ${diffHours} hour${diffHours !== 1 ? 's' : ''}`;
+                              } else {
+                                timeText = `in ${diffDays} day${diffDays !== 1 ? 's' : ''}`;
+                              }
+
+                              return `Next: ${nextEmail.lead.name} ${timeText} (${scheduledTime.toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true
+                              })})`;
+                            })()}
+                          </p>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {scheduledEmails.slice(0, 3).map((email) => (
+                              <span
+                                key={email.id}
+                                className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                                style={{
+                                  background: 'rgba(245, 158, 11, 0.1)',
+                                  color: '#F59E0B',
+                                }}
+                              >
+                                {email.lead.name}
+                              </span>
+                            ))}
+                            {scheduledEmails.length > 3 && (
+                              <span
+                                className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                                style={{
+                                  background: 'rgba(245, 158, 11, 0.1)',
+                                  color: '#F59E0B',
+                                }}
+                              >
+                                +{scheduledEmails.length - 3} more
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const message = scheduledEmails
+                            .map((email, idx) => {
+                              const time = new Date(email.scheduledFor).toLocaleString('en-US', {
+                                weekday: 'short',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true
+                              });
+                              return `${idx + 1}. ${email.lead.name} - ${time}`;
+                            })
+                            .join('\n');
+                          alert(`Scheduled Emails:\n\n${message}`);
+                        }}
+                        className="px-4 py-2 rounded-lg text-xs font-bold transition-all hover:scale-105 flex-shrink-0"
+                        style={{
+                          background: 'rgba(245, 158, 11, 0.15)',
+                          color: '#F59E0B',
+                          border: '1px solid #F59E0B',
+                        }}
+                      >
+                        View All
+                      </button>
+                    </div>
+                  )}
+
                   {/* Bulk Action Toolbar */}
                   {selectedLeads.size > 0 && (
                     <div
