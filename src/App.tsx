@@ -4389,6 +4389,8 @@ export default function App() {
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [websiteFilter, setWebsiteFilter] = useState<'all' | 'has-website' | 'no-website'>('all');
+  const [isEnrichingRatings, setIsEnrichingRatings] = useState(false);
+  const [ratingEnrichmentProgress, setRatingEnrichmentProgress] = useState({ current: 0, total: 0 });
 
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>(() => {
     const stored = localStorage.getItem('nexli-email-templates');
@@ -4981,6 +4983,61 @@ export default function App() {
     }
   };
 
+  // Enrich existing leads with Google ratings
+  const handleEnrichRatings = async (leadsToEnrich?: Lead[]) => {
+    const targetLeads = leadsToEnrich || allLeads;
+    const leadsNeedingRatings = targetLeads.filter(l => !l.googleRating && l.company && (l.city || l.state));
+
+    if (leadsNeedingRatings.length === 0) {
+      addNotification('info', 'No Enrichment Needed', 'All leads already have ratings!', 'info');
+      return;
+    }
+
+    setIsEnrichingRatings(true);
+    setRatingEnrichmentProgress({ current: 0, total: leadsNeedingRatings.length });
+
+    try {
+      let completed = 0;
+
+      // Process in batches of 5
+      for (let i = 0; i < leadsNeedingRatings.length; i += 5) {
+        const batch = leadsNeedingRatings.slice(i, i + 5);
+
+        await Promise.all(
+          batch.map(async (lead) => {
+            try {
+              const ratingData = await lookupGoogleRating(lead.company!, lead.city, lead.state);
+              if (ratingData) {
+                // Update the lead in allLeads
+                setAllLeads(prev => prev.map(l =>
+                  l.id === lead.id
+                    ? { ...l, googleRating: ratingData.rating, googleReviewCount: ratingData.reviewCount }
+                    : l
+                ));
+              }
+            } catch (error) {
+              console.error(`Failed to lookup rating for ${lead.company}:`, error);
+            }
+            completed++;
+            setRatingEnrichmentProgress({ current: completed, total: leadsNeedingRatings.length });
+          })
+        );
+
+        // Delay between batches
+        if (i + 5 < leadsNeedingRatings.length) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+
+      addNotification('success', 'Ratings Enriched', `Found ${completed} Google ratings!`, 'star');
+    } catch (error: any) {
+      addNotification('error', 'Enrichment Failed', error.message, 'alert-circle');
+    } finally {
+      setIsEnrichingRatings(false);
+      setRatingEnrichmentProgress({ current: 0, total: 0 });
+    }
+  };
+
   const handleBulkExport = () => {
     const leadsToExport = allLeads.filter((l) => selectedLeads.has(l.id));
     exportLeadsToCSV(leadsToExport);
@@ -5302,6 +5359,30 @@ export default function App() {
                         <Upload className="w-4 h-4" />
                         <span>Import CSV</span>
                       </label>
+                      <button
+                        onClick={() => handleEnrichRatings()}
+                        disabled={isEnrichingRatings}
+                        className="px-6 py-2.5 rounded-full font-bold flex items-center gap-2 transition-all"
+                        style={{
+                          background: isEnrichingRatings ? 'var(--bg-elevated)' : 'rgba(245, 158, 11, 0.1)',
+                          color: isEnrichingRatings ? 'var(--text-muted)' : '#F59E0B',
+                          border: '1px solid #F59E0B',
+                          opacity: isEnrichingRatings ? 0.5 : 1,
+                          cursor: isEnrichingRatings ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {isEnrichingRatings ? (
+                          <>
+                            <div className="animate-spin">⭐</div>
+                            <span>Enriching {ratingEnrichmentProgress.current}/{ratingEnrichmentProgress.total}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>⭐</span>
+                            <span>Enrich Ratings</span>
+                          </>
+                        )}
+                      </button>
                       <button
                         onClick={() => exportLeadsToCSV(allLeads)}
                         className="nexli-btn-gradient px-6 py-2.5 rounded-full font-bold flex items-center gap-2 shadow-lg"
