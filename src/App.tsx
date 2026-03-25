@@ -2203,7 +2203,7 @@ const ScraperView = ({
 
   // Decision Maker Filters (NEW)
   const [decisionMakersOnly, setDecisionMakersOnly] = useState(true);
-  const [maxCompanySize, setMaxCompanySize] = useState<number>(50); // Max employees (CPA firms only)
+  const [selectedCompanySizes, setSelectedCompanySizes] = useState<string[]>(['1-10', '11-20', '21-50']); // Default: Small firms
   const [includedTitles] = useState([
     'owner', 'co-owner', 'founder', 'co-founder', 'managing partner', 'partner',
     'principal', 'ceo', 'president', 'managing director', 'director'
@@ -2323,13 +2323,10 @@ const ScraperView = ({
 
   // Build Apify filters from user query + settings
   const buildFilters = () => {
-    // Dynamic company size filter based on maxCompanySize
-    const companySizeFilters = [];
-    if (maxCompanySize >= 10) companySizeFilters.push('1-10');
-    if (maxCompanySize >= 20) companySizeFilters.push('11-20');
-    if (maxCompanySize >= 50) companySizeFilters.push('21-50');
-    if (maxCompanySize >= 100) companySizeFilters.push('51-100');
-    if (maxCompanySize >= 500) companySizeFilters.push('101-500');
+    // Use selected company sizes (checkboxes)
+    const companySizeFilters = selectedCompanySizes.length > 0
+      ? selectedCompanySizes
+      : ['1-10', '11-20', '21-50']; // Default if none selected
 
     const filters: any = {
       totalResults,
@@ -2337,7 +2334,7 @@ const ScraperView = ({
       hasEmail: true,
       companyIndustryIncludes: ['Accounting'],
       companyLocationCountryIncludes: ['United States'],
-      companyEmployeeSizeIncludes: companySizeFilters.length > 0 ? companySizeFilters : ['1-10', '11-20', '21-50'],
+      companyEmployeeSizeIncludes: companySizeFilters,
       seniorityIncludes: ['C-Suite', 'VP', 'Director', 'Owner', 'Founder', 'Partner'],
       personFunctionIncludes: ['Accounting', 'Finance'],
     };
@@ -2862,20 +2859,42 @@ const ScraperView = ({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                  Max Company Size
+                  Company Size (Select Multiple)
                 </label>
-                <select
-                  value={maxCompanySize}
-                  onChange={(e) => setMaxCompanySize(Number(e.target.value))}
-                  className="w-full rounded-xl px-3 py-2.5 text-sm font-medium outline-none cursor-pointer"
-                  style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: 'none' }}
-                >
-                  <option value={10}>1-10 employees (Micro)</option>
-                  <option value={20}>1-20 employees (Small)</option>
-                  <option value={50}>1-50 employees (Medium)</option>
-                  <option value={100}>1-100 employees (Large)</option>
-                  <option value={500}>1-500 employees (Enterprise)</option>
-                </select>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: '1-10', label: '1-10 employees' },
+                    { value: '11-20', label: '11-20 employees' },
+                    { value: '21-50', label: '21-50 employees' },
+                    { value: '51-100', label: '51-100 employees' },
+                    { value: '101-500', label: '101-500 employees' },
+                  ].map(({ value, label }) => (
+                    <label
+                      key={value}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all"
+                      style={{
+                        background: selectedCompanySizes.includes(value) ? 'var(--nexli-primary-light)' : 'var(--bg-input)',
+                        border: selectedCompanySizes.includes(value) ? '1px solid var(--nexli-primary)' : '1px solid transparent',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedCompanySizes.includes(value)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCompanySizes([...selectedCompanySizes, value]);
+                          } else {
+                            setSelectedCompanySizes(selectedCompanySizes.filter(s => s !== value));
+                          }
+                        }}
+                        className="w-4 h-4 rounded accent-[var(--nexli-primary)]"
+                      />
+                      <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                        {label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
               <div>
@@ -2887,7 +2906,9 @@ const ScraperView = ({
                     {decisionMakersOnly ? '✅ Owners & decision makers' : '⚠️ All roles'}
                   </span>
                   <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
-                    {maxCompanySize <= 50 ? '🏢 CPA firms only' : '🏭 Includes large corps'}
+                    {selectedCompanySizes.length === 0 ? '⚠️ No sizes selected' :
+                     selectedCompanySizes.every(s => ['1-10', '11-20', '21-50'].includes(s)) ? '🏢 Small firms only' :
+                     '🏭 Multiple sizes'}
                   </span>
                 </div>
               </div>
