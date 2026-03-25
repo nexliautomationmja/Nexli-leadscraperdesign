@@ -2507,17 +2507,30 @@ const ScraperView = ({
       // Filter for decision makers only (title filtering)
       setScrapingStep('Filtering decision makers...');
       const filteredLeads = enrichedLeads.filter((lead: Lead) => {
+        // Safety check: skip leads without a role
+        if (!lead.role || typeof lead.role !== 'string' || lead.role.trim() === '') {
+          // If decision makers only mode is ON, exclude leads without roles
+          // Otherwise, include them (they just won't match any filters)
+          return !decisionMakersOnly;
+        }
+
         const role = lead.role.toLowerCase();
 
         // Check if title contains any excluded keywords
-        const hasExcludedTitle = excludedTitles.some(excluded => role.includes(excluded));
+        const hasExcludedTitle = excludedTitles.some(excluded => {
+          if (typeof excluded !== 'string') return false;
+          return role.includes(excluded);
+        });
         if (hasExcludedTitle) {
           return false; // Exclude this lead
         }
 
         // If decision makers only, check if title contains included keywords
         if (decisionMakersOnly) {
-          const hasIncludedTitle = includedTitles.some(included => role.includes(included));
+          const hasIncludedTitle = includedTitles.some(included => {
+            if (typeof included !== 'string') return false;
+            return role.includes(included);
+          });
           return hasIncludedTitle; // Only include if matches decision maker titles
         }
 
