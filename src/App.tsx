@@ -90,6 +90,7 @@ interface Lead {
   tags?: string[];
   generatedEmail?: { subject: string; body: string };
   emailSendStatus?: 'draft' | 'sent' | 'failed';
+  isFavorite?: boolean;
 }
 
 interface Campaign {
@@ -4389,6 +4390,7 @@ export default function App() {
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [websiteFilter, setWebsiteFilter] = useState<'all' | 'has-website' | 'no-website'>('all');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [isEnrichingRatings, setIsEnrichingRatings] = useState(false);
   const [ratingEnrichmentProgress, setRatingEnrichmentProgress] = useState({ current: 0, total: 0 });
 
@@ -4983,6 +4985,15 @@ export default function App() {
     }
   };
 
+  // Toggle favorite status
+  const handleToggleFavorite = (leadId: string) => {
+    setAllLeads(prev => prev.map(lead =>
+      lead.id === leadId
+        ? { ...lead, isFavorite: !lead.isFavorite }
+        : lead
+    ));
+  };
+
   // Enrich existing leads with Google ratings
   const handleEnrichRatings = async (leadsToEnrich?: Lead[]) => {
     const targetLeads = leadsToEnrich || allLeads;
@@ -5561,6 +5572,22 @@ export default function App() {
                     </button>
                   </div>
 
+                  {/* Favorites Filter */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setFavoritesOnly(!favoritesOnly)}
+                      className="px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2"
+                      style={{
+                        background: favoritesOnly ? 'rgba(251, 191, 36, 0.1)' : 'var(--bg-elevated)',
+                        color: favoritesOnly ? '#FBBF24' : 'var(--text-muted)',
+                        border: favoritesOnly ? '1px solid #FBBF24' : '1px solid var(--border-color)',
+                      }}
+                    >
+                      <span className="text-lg">{favoritesOnly ? '⭐' : '☆'}</span>
+                      <span>Favorites Only ({allLeads.filter(l => l.isFavorite).length})</span>
+                    </button>
+                  </div>
+
                   {allLeads.length > 0 ? (
                     <div className="glass-card rounded-2xl overflow-hidden">
                       <table className="w-full text-left">
@@ -5598,7 +5625,9 @@ export default function App() {
                                 websiteFilter === 'all' ||
                                 (websiteFilter === 'has-website' && lead.website) ||
                                 (websiteFilter === 'no-website' && !lead.website);
-                              return tagMatch && websiteMatch;
+                              // Favorites filter
+                              const favoriteMatch = !favoritesOnly || lead.isFavorite;
+                              return tagMatch && websiteMatch && favoriteMatch;
                             })
                             .map((lead, idx) => (
                             <tr
@@ -5713,6 +5742,17 @@ export default function App() {
                                         <Globe className="w-3.5 h-3.5" />
                                       </a>
                                     )}
+                                    <button
+                                      onClick={() => handleToggleFavorite(lead.id)}
+                                      className="inline-flex items-center justify-center p-1 rounded-lg transition-all cursor-pointer"
+                                      style={{
+                                        background: lead.isFavorite ? 'rgba(251, 191, 36, 0.1)' : 'var(--bg-elevated)',
+                                        color: lead.isFavorite ? '#FBBF24' : 'var(--text-muted)',
+                                      }}
+                                      title={lead.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                                    >
+                                      <span className="text-base">{lead.isFavorite ? '⭐' : '☆'}</span>
+                                    </button>
                                   </div>
                                   {lead.tags && lead.tags.length > 0 && (
                                     <div className="flex items-center gap-1.5 flex-wrap">
