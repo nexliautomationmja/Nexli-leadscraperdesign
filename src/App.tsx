@@ -2857,12 +2857,12 @@ const ScraperView = ({
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
                   Company Size (Select Multiple)
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[
                     { value: '1-10', label: '1-10 employees' },
                     { value: '11-20', label: '11-20 employees' },
@@ -5338,7 +5338,7 @@ export default function App() {
               )}
               {activeTab === 'leads' && (
                 <div className="space-y-8">
-                  <header className="flex items-center justify-between">
+                  <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div>
                       <h2
                         className="text-3xl font-bold tracking-tight font-display mb-2"
@@ -5350,7 +5350,7 @@ export default function App() {
                         Manage and export your collected leads.
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                       <input
                         type="file"
                         accept=".csv"
@@ -5360,7 +5360,7 @@ export default function App() {
                       />
                       <label
                         htmlFor="csv-upload"
-                        className="px-6 py-2.5 rounded-full font-bold flex items-center gap-2 cursor-pointer transition-all"
+                        className="px-3 sm:px-6 py-2 sm:py-2.5 rounded-full font-bold flex items-center gap-2 cursor-pointer transition-all text-xs sm:text-sm"
                         style={{
                           background: 'var(--bg-elevated)',
                           color: 'var(--text-primary)',
@@ -5368,12 +5368,13 @@ export default function App() {
                         }}
                       >
                         <Upload className="w-4 h-4" />
-                        <span>Import CSV</span>
+                        <span className="hidden sm:inline">Import CSV</span>
+                        <span className="sm:hidden">Import</span>
                       </label>
                       <button
                         onClick={() => handleEnrichRatings()}
                         disabled={isEnrichingRatings}
-                        className="px-6 py-2.5 rounded-full font-bold flex items-center gap-2 transition-all"
+                        className="px-3 sm:px-6 py-2 sm:py-2.5 rounded-full font-bold flex items-center gap-2 transition-all text-xs sm:text-sm"
                         style={{
                           background: isEnrichingRatings ? 'var(--bg-elevated)' : 'rgba(245, 158, 11, 0.1)',
                           color: isEnrichingRatings ? 'var(--text-muted)' : '#F59E0B',
@@ -5385,21 +5386,24 @@ export default function App() {
                         {isEnrichingRatings ? (
                           <>
                             <div className="animate-spin">⭐</div>
-                            <span>Enriching {ratingEnrichmentProgress.current}/{ratingEnrichmentProgress.total}</span>
+                            <span className="hidden sm:inline">Enriching {ratingEnrichmentProgress.current}/{ratingEnrichmentProgress.total}</span>
+                            <span className="sm:hidden">{ratingEnrichmentProgress.current}/{ratingEnrichmentProgress.total}</span>
                           </>
                         ) : (
                           <>
                             <span>⭐</span>
-                            <span>Enrich Ratings</span>
+                            <span className="hidden sm:inline">Enrich Ratings</span>
+                            <span className="sm:hidden">Enrich</span>
                           </>
                         )}
                       </button>
                       <button
                         onClick={() => exportLeadsToCSV(allLeads)}
-                        className="nexli-btn-gradient px-6 py-2.5 rounded-full font-bold flex items-center gap-2 shadow-lg"
+                        className="nexli-btn-gradient px-3 sm:px-6 py-2 sm:py-2.5 rounded-full font-bold flex items-center gap-2 shadow-lg text-xs sm:text-sm"
                       >
                         <Download className="w-4 h-4" />
-                        <span>Export All</span>
+                        <span className="hidden sm:inline">Export All</span>
+                        <span className="sm:hidden">Export</span>
                       </button>
                     </div>
                   </header>
@@ -5407,7 +5411,7 @@ export default function App() {
                   {/* Bulk Action Toolbar */}
                   {selectedLeads.size > 0 && (
                     <div
-                      className="glass-card rounded-2xl p-4 flex items-center justify-between"
+                      className="glass-card rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
                       style={{ borderColor: 'var(--gradient-start)' }}
                     >
                       <div className="flex items-center gap-3">
@@ -5416,21 +5420,22 @@ export default function App() {
                         >
                           {selectedLeads.size}
                         </div>
-                        <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
+                        <p className="font-bold text-sm sm:text-base" style={{ color: 'var(--text-primary)' }}>
                           {selectedLeads.size} lead{selectedLeads.size > 1 ? 's' : ''} selected
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <div className="relative group">
                           <button
-                            className="px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+                            className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-bold flex items-center gap-2 transition-all text-xs sm:text-sm"
                             style={{
                               background: 'var(--bg-elevated)',
                               color: 'var(--text-primary)',
                             }}
                           >
-                            <Plus className="w-4 h-4" />
-                            Add Tag
+                            <Plus className="w-3 sm:w-4 h-3 sm:h-4" />
+                            <span className="hidden sm:inline">Add Tag</span>
+                            <span className="sm:hidden">Tag</span>
                           </button>
                           <div
                             className="absolute top-full right-0 mt-2 glass-card rounded-xl p-2 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[180px]"
@@ -5461,36 +5466,36 @@ export default function App() {
                         </div>
                         <button
                           onClick={handleBulkExport}
-                          className="px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+                          className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-bold flex items-center gap-2 transition-all text-xs sm:text-sm"
                           style={{
                             background: 'var(--bg-elevated)',
                             color: 'var(--text-primary)',
                           }}
                         >
-                          <Download className="w-4 h-4" />
-                          Export
+                          <Download className="w-3 sm:w-4 h-3 sm:h-4" />
+                          <span>Export</span>
                         </button>
                         <button
                           onClick={handleBulkDelete}
-                          className="px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+                          className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-bold flex items-center gap-2 transition-all text-xs sm:text-sm"
                           style={{
                             background: 'var(--status-failed-bg)',
                             color: 'var(--status-failed-text)',
                           }}
                         >
-                          <Trash2 className="w-4 h-4" />
-                          Delete
+                          <Trash2 className="w-3 sm:w-4 h-3 sm:h-4" />
+                          <span>Delete</span>
                         </button>
                         <button
                           onClick={() => setSelectedLeads(new Set())}
-                          className="px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+                          className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-bold flex items-center gap-2 transition-all text-xs sm:text-sm"
                           style={{
                             background: 'var(--bg-elevated)',
                             color: 'var(--text-muted)',
                           }}
                         >
-                          <X className="w-4 h-4" />
-                          Clear
+                          <X className="w-3 sm:w-4 h-3 sm:h-4" />
+                          <span>Clear</span>
                         </button>
                       </div>
                     </div>
@@ -5576,21 +5581,23 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setFavoritesOnly(!favoritesOnly)}
-                      className="px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2"
+                      className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-2"
                       style={{
                         background: favoritesOnly ? 'rgba(251, 191, 36, 0.1)' : 'var(--bg-elevated)',
                         color: favoritesOnly ? '#FBBF24' : 'var(--text-muted)',
                         border: favoritesOnly ? '1px solid #FBBF24' : '1px solid var(--border-color)',
                       }}
                     >
-                      <span className="text-lg">{favoritesOnly ? '⭐' : '☆'}</span>
-                      <span>Favorites Only ({allLeads.filter(l => l.isFavorite).length})</span>
+                      <span className="text-base sm:text-lg">{favoritesOnly ? '⭐' : '☆'}</span>
+                      <span className="hidden sm:inline">Favorites Only ({allLeads.filter(l => l.isFavorite).length})</span>
+                      <span className="sm:hidden">Favorites ({allLeads.filter(l => l.isFavorite).length})</span>
                     </button>
                   </div>
 
                   {allLeads.length > 0 ? (
                     <div className="glass-card rounded-2xl overflow-hidden">
-                      <table className="w-full text-left">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
                         <thead>
                           <tr
                             className="text-[10px] uppercase tracking-[0.15em] font-bold"
@@ -5837,6 +5844,7 @@ export default function App() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-5">
