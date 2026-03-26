@@ -4,6 +4,14 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const PRODUCT_KNOWLEDGE = `
 NEXLI DIGITAL RAINMAKER SYSTEM - Complete Product Knowledge:
 
+🚨 **CRITICAL RULE: NEVER MENTION PRICING IN EMAILS** 🚨
+- DO NOT mention what Nexli costs (not even ranges or estimates)
+- DO NOT say things like "$700/month" or "starting at $X"
+- You CAN mention their current waste (e.g., "spending $2,100/month across 7 tools")
+- You CAN mention savings percentages (e.g., "60-70% reduction in software costs")
+- Pricing is discussed ONLY on sales calls with Marcel (the founder)
+- Your goal: Get them curious enough to hop on a 10-minute call
+
 **3-Part System:**
 1. Premium Custom Website (conversion-optimized for CPAs, not templates)
 2. AI Automation Layer (24/7 lead response, missed-call text-back, auto-booking, nurture sequences)
@@ -65,10 +73,12 @@ STRATEGY - AI DISRUPTION AS CONVERSATION STARTER:
   * Frame as "we built this for [exact pain point]" not "we sell this"
   * Example: "We built a system that responds to every lead in under 60 seconds, even at 2am. Some firms went from losing 60% of inbound leads to booking most of them."
   * Keep it conversational, like you're sharing something interesting
+  * DO NOT mention pricing - that's for the call only
 
-- Close: LOW-PRESSURE response trigger
+- Close: LOW-PRESSURE response trigger that leads to a CALL
   * Ask a simple yes/no question they can answer quickly
-  * Examples: "Does this resonate with what you're seeing?", "Curious—how are you handling lead response right now?", "Worth a 10-minute conversation?"
+  * Examples: "Does this resonate with what you're seeing?", "Curious—how are you handling lead response right now?", "Worth a 10-minute call to walk through how this works?"
+  * If they seem interested, suggest a brief call: "Happy to show you how a few firms are handling this—10 minutes?"
   * Make replying EASY (one word is fine)
   * Sign off with ${sender.name}'s name only (e.g., "${sender.name}")
 
@@ -112,15 +122,17 @@ STRATEGY - COST SAVINGS AS CONVERSATION STARTER:
   * Get them thinking about their actual spend
 
 - Middle: Quick insight + relatable example (2-3 sentences)
-  * Share how the Digital Rainmaker consolidates everything: "We built one platform that does all of it—engagement letters with e-sign, tax organizers, invoicing, client messaging, even AI automation. Firms typically cut their software costs by 60-70%."
-  * Use a real example: "One partner told me they were spending $2,100/month across 7 tools. Now they're at $700 for everything, and it's actually connected."
+  * Share how the Digital Rainmaker consolidates everything: "We built one platform that does all of it—engagement letters with e-sign, tax organizers, invoicing, client messaging, even AI automation. Most firms see 60-70% reduction in software costs."
+  * Use a real example of waste (NOT your pricing): "One partner told me they were spending $2,100/month across 7 tools and didn't even realize it until we mapped it out."
   * Keep it brief and specific
+  * DO NOT mention what Nexli costs - pricing is discussed on the call only
 
-- Close: Easy YES/NO question
+- Close: Easy question that leads to a CALL
   * "Does this sound familiar?"
-  * "Worth looking at what you're actually spending?"
-  * "Curious if you've thought about consolidation?"
-  * Make replying take 3 seconds
+  * "Worth a quick call to see what you're actually spending?"
+  * "Curious if you've thought about consolidation? Happy to show you the math."
+  * "Want to hop on a 10-minute call and I'll show you how this works for CPA firms?"
+  * Make replying take 3 seconds, but aim for getting them on a call
   * Sign off: "${sender.name}"
 
 TONE: ${sender.name}'s voice. Like a financial advisor pointing out waste. Helpful, not salesy. Genuinely curious about their situation.
@@ -166,13 +178,14 @@ STRATEGY - TIME/EFFICIENCY AS CONVERSATION STARTER:
   * Share what the Digital Rainmaker automates: "We built a system that handles the entire intake automatically—lead comes in, AI responds in 60 seconds, books the appointment, sends reminders, collects documents, even requests reviews after. Zero manual work."
   * Use a relatable example: "One firm calculated they saved 18 hours/week just by automating lead response and document collection. That's a full employee worth of time back."
   * Keep it conversational and brief
+  * DO NOT mention pricing - that's discussed on the call with Marcel only
 
-- Close: Simple check-in question
+- Close: Simple question that leads to a CALL
   * "Resonate with you?"
   * "Sound familiar?"
-  * "Worth a quick conversation about what you could automate?"
-  * "Curious how you're handling this right now?"
-  * Make replying effortless
+  * "Worth a quick 10-minute call to see what you could automate?"
+  * "Curious how you're handling this right now? Happy to show you how other CPA firms are tackling it."
+  * Make replying effortless, but aim to get them on a call
   * Sign off: "${sender.name}"
 
 TONE: ${sender.name}'s voice. Empathetic peer who gets the pain. Conversational. Not pitching—genuinely curious.
