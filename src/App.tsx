@@ -5642,7 +5642,7 @@ export default function App() {
                 ));
 
                 // Persist to Supabase
-                await supabase
+                const { error: updateError } = await supabase
                   .from('leads')
                   .update({
                     google_rating: ratingData.rating,
@@ -5650,6 +5650,14 @@ export default function App() {
                   })
                   .eq('id', lead.id)
                   .eq('user_id', user.id);
+
+                if (updateError) {
+                  console.error('❌ DATABASE UPDATE FAILED:', updateError.message);
+                  console.error('Lead:', lead.company);
+                  console.error('Error details:', updateError);
+                } else {
+                  console.log(`✅ Saved to DB: ${lead.company} = ${ratingData.rating}⭐`);
+                }
               }
             } catch (error) {
               console.error(`Failed to lookup rating for ${lead.company}:`, error);
