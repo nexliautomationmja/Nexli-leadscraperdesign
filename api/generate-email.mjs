@@ -188,7 +188,6 @@ Return ONLY valid JSON:
 {"subject": "your subject line", "body": "your email body"}`
   }
 };
-};
 
 export default async function handler(req, res) {
   // Debug logging
