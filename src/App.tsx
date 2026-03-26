@@ -1401,6 +1401,7 @@ const Sidebar = ({
   isDark,
   sidebarOpen,
   setSidebarOpen,
+  sidebarCollapsed,
   allLeads,
   campaigns,
   userProfile,
@@ -1413,6 +1414,7 @@ const Sidebar = ({
   isDark: boolean;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  sidebarCollapsed: boolean;
   allLeads: Lead[];
   campaigns: Campaign[];
   userProfile: { full_name: string; profile_photo_url: string | null } | null;
@@ -1474,8 +1476,10 @@ const Sidebar = ({
         className={cn(
           'fixed left-0 top-16 bottom-0 w-64 p-4 flex flex-col justify-between z-40',
           'transition-all duration-300 ease-in-out',
-          'md:translate-x-0',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          // Mobile: controlled by sidebarOpen
+          // Desktop: controlled by sidebarCollapsed
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+          sidebarCollapsed ? 'md:-translate-x-full' : 'md:translate-x-0'
         )}
         style={{
           background: 'var(--bg-surface)',
@@ -4830,6 +4834,17 @@ export default function App() {
   // Mobile sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Desktop sidebar collapse state with localStorage persistence
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const stored = localStorage.getItem('nexli-sidebar-collapsed');
+    return stored === 'true';
+  });
+
+  // Persist sidebar collapsed state
+  useEffect(() => {
+    localStorage.setItem('nexli-sidebar-collapsed', sidebarCollapsed.toString());
+  }, [sidebarCollapsed]);
+
   // Notifications state with localStorage persistence
   const [notifications, setNotifications] = useState<Notification[]>(() => {
     const stored = localStorage.getItem('nexli-notifications');
@@ -5945,6 +5960,7 @@ export default function App() {
         isDark={isDark}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
+        sidebarCollapsed={sidebarCollapsed}
         allLeads={allLeads}
         campaigns={campaigns}
         userProfile={userProfile}
@@ -5953,7 +5969,23 @@ export default function App() {
         addNotification={addNotification}
       />
 
-      <main className="pt-16 md:pl-64 min-h-screen">
+      {/* Sidebar collapse toggle button (desktop only) */}
+      <button
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        className="hidden md:flex fixed left-0 top-20 z-40 items-center justify-center w-6 h-12 rounded-r-lg transition-all hover:w-8"
+        style={{
+          left: sidebarCollapsed ? '0px' : '256px',
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border-color)',
+          borderLeft: 'none',
+          color: 'var(--text-muted)',
+        }}
+        title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      >
+        {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+      </button>
+
+      <main className={`pt-16 min-h-screen transition-all duration-300 ${sidebarCollapsed ? 'md:pl-0' : 'md:pl-64'}`}>
         <div className="p-8 max-w-7xl mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
