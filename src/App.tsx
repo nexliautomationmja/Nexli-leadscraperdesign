@@ -5208,6 +5208,9 @@ export default function App() {
             score: dbLead.score,
             status: dbLead.status || 'new',
             tags: dbLead.tags || [],
+            isFavorite: dbLead.is_favorite || false,
+            googleRating: dbLead.google_rating,
+            googleReviewCount: dbLead.google_review_count,
           }));
 
           setAllLeads(mappedLeads);
@@ -5572,12 +5575,43 @@ export default function App() {
   };
 
   // Toggle favorite status
-  const handleToggleFavorite = (leadId: string) => {
-    setAllLeads(prev => prev.map(lead =>
-      lead.id === leadId
-        ? { ...lead, isFavorite: !lead.isFavorite }
-        : lead
+  const handleToggleFavorite = async (leadId: string) => {
+    if (!user) return;
+
+    // Find the lead to get current favorite status
+    const lead = allLeads.find(l => l.id === leadId);
+    if (!lead) return;
+
+    const newFavoriteStatus = !lead.isFavorite;
+
+    // Update UI immediately (optimistic update)
+    setAllLeads(prev => prev.map(l =>
+      l.id === leadId
+        ? { ...l, isFavorite: newFavoriteStatus }
+        : l
     ));
+
+    // Persist to Supabase
+    try {
+      const { error } = await supabase
+        .from('leads')
+        .update({ is_favorite: newFavoriteStatus })
+        .eq('id', leadId)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Failed to update favorite status:', error);
+        // Revert optimistic update on error
+        setAllLeads(prev => prev.map(l =>
+          l.id === leadId
+            ? { ...l, isFavorite: !newFavoriteStatus }
+            : l
+        ));
+        addNotification('error', 'Update Failed', 'Could not update favorite status', 'alert-circle');
+      }
+    } catch (error) {
+      console.error('Error updating favorite:', error);
+    }
   };
 
   // Enrich existing leads with Google ratings
@@ -5604,13 +5638,23 @@ export default function App() {
           batch.map(async (lead) => {
             try {
               const ratingData = await lookupGoogleRating(lead.company!, lead.city, lead.state);
-              if (ratingData) {
-                // Update the lead in allLeads
+              if (ratingData && user) {
+                // Update UI immediately
                 setAllLeads(prev => prev.map(l =>
                   l.id === lead.id
                     ? { ...l, googleRating: ratingData.rating, googleReviewCount: ratingData.reviewCount }
                     : l
                 ));
+
+                // Persist to Supabase
+                await supabase
+                  .from('leads')
+                  .update({
+                    google_rating: ratingData.rating,
+                    google_review_count: ratingData.reviewCount
+                  })
+                  .eq('id', lead.id)
+                  .eq('user_id', user.id);
               }
             } catch (error) {
               console.error(`Failed to lookup rating for ${lead.company}:`, error);
