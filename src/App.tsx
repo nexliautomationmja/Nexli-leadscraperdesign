@@ -5625,9 +5625,9 @@ export default function App() {
     try {
       let completed = 0;
 
-      // Process in batches of 5
-      for (let i = 0; i < leadsNeedingRatings.length; i += 5) {
-        const batch = leadsNeedingRatings.slice(i, i + 5);
+      // Process in batches of 2 (reduced to avoid overwhelming API)
+      for (let i = 0; i < leadsNeedingRatings.length; i += 2) {
+        const batch = leadsNeedingRatings.slice(i, i + 2);
 
         await Promise.all(
           batch.map(async (lead) => {
@@ -5659,9 +5659,9 @@ export default function App() {
           })
         );
 
-        // Delay between batches
-        if (i + 5 < leadsNeedingRatings.length) {
-          await new Promise(r => setTimeout(r, 500));
+        // Delay between batches (increased to 1 second to avoid rate limits)
+        if (i + 2 < leadsNeedingRatings.length) {
+          await new Promise(r => setTimeout(r, 1000));
         }
       }
 
