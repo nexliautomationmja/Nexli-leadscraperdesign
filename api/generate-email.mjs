@@ -1,45 +1,85 @@
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-// Email variation prompts for A/B/C testing
+// PRODUCT KNOWLEDGE - All senders are experts on the Digital Rainmaker System
+const PRODUCT_KNOWLEDGE = `
+NEXLI DIGITAL RAINMAKER SYSTEM - Complete Product Knowledge:
+
+**3-Part System:**
+1. Premium Custom Website (conversion-optimized for CPAs, not templates)
+2. AI Automation Layer (24/7 lead response, missed-call text-back, auto-booking, nurture sequences)
+3. Google Review Amplification (automated requests, builds firms from 4-12 to 80+ reviews)
+
+**Client Portal (All-in-One Tool):**
+- Engagement letters with e-signature
+- Tax organizers (secure document collection for W-2s, 1099s, etc.)
+- Professional invoicing with online payment tracking
+- Client messaging (replaces email chaos)
+- CRM/lead management
+- Quantum-resistant encryption (AES-256)
+
+**Key Stats:**
+- 78% of clients choose the FIRST firm to respond within 5 minutes
+- Lead quality drops 80% after the first 5 minutes
+- Most CPA firms take 4+ hours to respond (you lose by default)
+
+**Pain Points Solved:**
+- Tool overload (6+ disconnected platforms → 1 unified system)
+- Missed leads (24/7 AI responds instantly, never miss a call)
+- Manual admin work (automation handles intake, scheduling, follow-ups)
+- Weak online presence (premium custom site vs outdated competitors)
+- Low trust signals (review engine systematically builds credibility)
+
+**Target Customer:** Established CPA firms (owners, partners, managing partners) who are losing leads to faster competitors or drowning in disconnected tools.
+`;
+
+// Email variation prompts - OBJECTIVE: GET RESPONSES (check for pulse)
 const EMAIL_VARIATIONS = {
   ai_disruption: {
     name: 'AI Disruption & Ownership',
-    prompt: (lead, postSummary, sender) => `You are writing as ${sender.name}, ${sender.role} at Nexli Automation.
+    prompt: (lead, postSummary, sender) => `You are ${sender.name}, ${sender.role} at Nexli Automation.
+
+${PRODUCT_KNOWLEDGE}
 
 SENDER PERSONALITY & VOICE:
 ${sender.personality}
 
-Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
+Write a short, conversational email to ${lead.name}, ${lead.role} at ${lead.company}.
 
 ${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
 
-IMPORTANT: Write this email in ${sender.name}'s voice and personality as described above. The tone and style should authentically match ${sender.name}'s character.
+**CRITICAL MISSION: GET A RESPONSE**
+This email's ONLY goal is to spark a reply. Not to pitch. Not to sell. Just to start a conversation and check if there's a pulse on the other end.
 
-CRITICAL REQUIREMENTS - AI DISRUPTION ANGLE:
-- Subject line: 4-8 words, mention "AI" or "software" or specific pain, NO spam words
-  Examples: "AI making your software obsolete?", "Goldman Sachs SaaS warning", "software squeeze ahead"
+STRATEGY - AI DISRUPTION AS CONVERSATION STARTER:
+- Subject line: 3-6 words, curiosity-driven question or insight
+  Examples: "your tech stack vulnerable?", "5-minute response rule", "AI + per-seat pricing"
 
-- Opening: Start with AI disruption threat or future pain
-  * "Goldman Sachs just warned that most software tools have 5 years before AI makes them obsolete"
-  * "As AI replaces headcount, SaaS vendors are going to squeeze the clients who stayed"
-  * "What happens to your per-seat licenses when AI cuts your team size in half?"
-  * Lead with THEIR future pain, not current pain
+- Opening: Pattern interrupt with specific insight or question
+  * Start with a thought-provoking question they can't ignore
+  * Reference a specific pain point (e.g., "Do you ever lose leads because your team took 2 hours to respond?")
+  * Use the 78% stat: "Saw a stat that 78% of clients choose whoever responds first—within 5 minutes. Made me wonder if CPA firms are even equipped for that?"
+  * Make it about THEIR reality, not your product
 
-- Middle: Present ownership/control as the solution
-  * "You don't even own the data sitting in those platforms"
-  * "Annual contracts and per-seat pricing = counter-party risk"
-  * "What if you could own the platform instead of renting it?"
-  * Focus on: data ownership, no vendor lock-in, no per-seat squeeze
-  * Mention: military-grade security, future-proof
+- Middle: Quick insight + soft check-in (2-3 sentences MAX)
+  * Share ONE specific insight about the Digital Rainmaker System (24/7 AI response, automated intake, review engine)
+  * Frame as "we built this for [exact pain point]" not "we sell this"
+  * Example: "We built a system that responds to every lead in under 60 seconds, even at 2am. Some firms went from losing 60% of inbound leads to booking most of them."
+  * Keep it conversational, like you're sharing something interesting
 
-- Close: Soft, consultative CTA
-  * "Worth exploring before the squeeze hits?"
-  * "Open to a quick conversation about ownership models?"
-  * Sign off with ${sender.name}'s name (e.g., "Best, ${sender.name}")
+- Close: LOW-PRESSURE response trigger
+  * Ask a simple yes/no question they can answer quickly
+  * Examples: "Does this resonate with what you're seeing?", "Curious—how are you handling lead response right now?", "Worth a 10-minute conversation?"
+  * Make replying EASY (one word is fine)
+  * Sign off with ${sender.name}'s name only (e.g., "${sender.name}")
 
-TONE: Forward-thinking, protective (like warning a peer), not salesy.
+TONE: ${sender.name}'s authentic voice. Conversational peer. Genuinely curious. NOT salesy. Like texting a colleague.
 
-AVOID: Feature lists, "we do this/that", promotional language
+AVOID:
+- Long emails (keep under 100 words)
+- Feature lists or "we do X, Y, Z"
+- Aggressive CTAs
+- Multiple questions (pick ONE)
+- Anything that sounds like a template
 
 Return ONLY valid JSON:
 {"subject": "your subject line", "body": "your email body"}`
@@ -47,42 +87,50 @@ Return ONLY valid JSON:
 
   cost_savings: {
     name: 'Cost Savings Focus',
-    prompt: (lead, postSummary, sender) => `You are writing as ${sender.name}, ${sender.role} at Nexli Automation.
+    prompt: (lead, postSummary, sender) => `You are ${sender.name}, ${sender.role} at Nexli Automation.
+
+${PRODUCT_KNOWLEDGE}
 
 SENDER PERSONALITY & VOICE:
 ${sender.personality}
 
-Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
+Write a short, conversational email to ${lead.name}, ${lead.role} at ${lead.company}.
 
 ${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
 
-IMPORTANT: Write this email in ${sender.name}'s voice and personality as described above. The tone and style should authentically match ${sender.name}'s character.
+**CRITICAL MISSION: GET A RESPONSE**
+Spark a conversation. Check if there's interest. Don't pitch—just start a dialogue about waste they might not realize exists.
 
-CRITICAL REQUIREMENTS - COST SAVINGS ANGLE:
-- Subject line: 4-8 words, include number/cost, NO spam words
-  Examples: "saving $18K/year on tech", "$2,000/month tech waste?", "SaaS consolidation math"
+STRATEGY - COST SAVINGS AS CONVERSATION STARTER:
+- Subject line: 3-6 words, number-driven curiosity
+  Examples: "$20K in duplicate tools?", "your SaaS math", "6 tools → 1 platform"
 
-- Opening: Start with specific cost pain
-  * "Most CPA firms are spending $1,500-2,000/month across QuickBooks, Dropbox, DocuSign, payment processors..."
-  * "That tech stack adds up to $18K-24K per year—and it's all disconnected"
-  * "5-7 different SaaS subscriptions eating 50-70% of your monthly software budget"
-  * Use SPECIFIC numbers and dollar amounts
+- Opening: Specific, relatable observation (not a pitch)
+  * Start with a question about their tech stack: "Quick question—how many different platforms are you paying for right now? QuickBooks, DocuSign, payment processor, client portal, CRM..."
+  * Or share a pattern: "Most CPA firms I talk to are running 6-8 different tools. Adds up to $18K-24K/year and none of them talk to each other."
+  * Make it conversational, not accusatory
+  * Get them thinking about their actual spend
 
-- Middle: Present consolidation savings
-  * "What if you could cut that by 60-70% and get everything in one platform?"
-  * "Most firms save $12K-15K/year just by consolidating"
-  * "Military-grade secure, one login, one bill"
-  * Focus on: concrete savings, ROI, cost reduction
-  * Mention: typical payback period of 3-4 months
+- Middle: Quick insight + relatable example (2-3 sentences)
+  * Share how the Digital Rainmaker consolidates everything: "We built one platform that does all of it—engagement letters with e-sign, tax organizers, invoicing, client messaging, even AI automation. Firms typically cut their software costs by 60-70%."
+  * Use a real example: "One partner told me they were spending $2,100/month across 7 tools. Now they're at $700 for everything, and it's actually connected."
+  * Keep it brief and specific
 
-- Close: Soft, consultative CTA
-  * "Worth running the numbers together?"
-  * "Curious what consolidation could save you specifically?"
-  * Sign off with ${sender.name}'s name (e.g., "Best, ${sender.name}")
+- Close: Easy YES/NO question
+  * "Does this sound familiar?"
+  * "Worth looking at what you're actually spending?"
+  * "Curious if you've thought about consolidation?"
+  * Make replying take 3 seconds
+  * Sign off: "${sender.name}"
 
-TONE: Financial advisor helping them find waste, not salesy.
+TONE: ${sender.name}'s voice. Like a financial advisor pointing out waste. Helpful, not salesy. Genuinely curious about their situation.
 
-AVOID: Feature lists, "we do this/that", promotional language, hype
+AVOID:
+- Long emails (under 100 words)
+- Listing all features
+- Aggressive "book a demo" language
+- Multiple CTAs
+- Sounding like a template
 
 Return ONLY valid JSON:
 {"subject": "your subject line", "body": "your email body"}`
@@ -90,46 +138,56 @@ Return ONLY valid JSON:
 
   time_efficiency: {
     name: 'Time & Efficiency Focus',
-    prompt: (lead, postSummary, sender) => `You are writing as ${sender.name}, ${sender.role} at Nexli Automation.
+    prompt: (lead, postSummary, sender) => `You are ${sender.name}, ${sender.role} at Nexli Automation.
+
+${PRODUCT_KNOWLEDGE}
 
 SENDER PERSONALITY & VOICE:
 ${sender.personality}
 
-Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
+Write a short, conversational email to ${lead.name}, ${lead.role} at ${lead.company}.
 
 ${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
 
-IMPORTANT: Write this email in ${sender.name}'s voice and personality as described above. The tone and style should authentically match ${sender.name}'s character.
+**CRITICAL MISSION: GET A RESPONSE**
+Open a conversation about time waste. Make them think "wow, that's my day." Not a pitch—just a reality check that gets them to reply.
 
-CRITICAL REQUIREMENTS - TIME/EFFICIENCY ANGLE:
-- Subject line: 4-8 words, mention "time" or "hours" or specific task, NO spam words
-  Examples: "12 hours of admin per week", "platform-switching time drain", "manual work elimination"
+STRATEGY - TIME/EFFICIENCY AS CONVERSATION STARTER:
+- Subject line: 3-6 words, time-focused observation
+  Examples: "10 hours/week to admin?", "your lead response time", "switching between 6 tools"
 
-- Opening: Start with time waste pain
-  * "How much time is your team spending switching between platforms and manually chasing documents?"
-  * "Most CPA firm owners tell me they lose 10-15 hours per week to admin work that shouldn't exist"
-  * "Platform-switching, manual data entry, invoice follow-ups—it adds up fast"
-  * Focus on TIME as the scarce resource (more valuable than money)
+- Opening: Relatable time-waste observation (specific question)
+  * Start with their reality: "Honest question—how much time does your team burn switching between platforms each day? QuickBooks → DocuSign → payment processor → email → CRM..."
+  * Or use a specific stat: "Read somewhere that CPA firm owners lose 12-15 hours/week to admin work that should be automated. That's basically 2 workdays gone."
+  * Or ask about lead response: "Quick check—when a lead calls or fills out your site at 7pm, how long until someone follows up? Next morning? That's when you lose them."
+  * Make it about THEIR time, not your solution
 
-- Middle: Present automation/efficiency gain
-  * "What if you could eliminate 12+ hours of manual work per week without hiring?"
-  * "One platform that handles client docs, invoicing, e-signatures, payment tracking—all automated"
-  * "Your team focuses on advisory work instead of admin busywork"
-  * Focus on: time savings, automation, leverage existing team
-  * Mention: military-grade security, unified dashboard
+- Middle: Quick automation insight (2-3 sentences)
+  * Share what the Digital Rainmaker automates: "We built a system that handles the entire intake automatically—lead comes in, AI responds in 60 seconds, books the appointment, sends reminders, collects documents, even requests reviews after. Zero manual work."
+  * Use a relatable example: "One firm calculated they saved 18 hours/week just by automating lead response and document collection. That's a full employee worth of time back."
+  * Keep it conversational and brief
 
-- Close: Soft, consultative CTA
-  * "Worth 15 minutes to explore what you could automate?"
-  * "Open to seeing how other firms are saving this time?"
-  * Sign off with ${sender.name}'s name (e.g., "Best, ${sender.name}")
+- Close: Simple check-in question
+  * "Resonate with you?"
+  * "Sound familiar?"
+  * "Worth a quick conversation about what you could automate?"
+  * "Curious how you're handling this right now?"
+  * Make replying effortless
+  * Sign off: "${sender.name}"
 
-TONE: Empathetic peer who knows they're overworked, not salesy.
+TONE: ${sender.name}'s voice. Empathetic peer who gets the pain. Conversational. Not pitching—genuinely curious.
 
-AVOID: Feature lists, "we do this/that", promotional language, hype
+AVOID:
+- Long emails (under 100 words)
+- Laundry list of features
+- "Book a demo" pressure
+- Multiple questions or CTAs
+- Generic template language
 
 Return ONLY valid JSON:
 {"subject": "your subject line", "body": "your email body"}`
   }
+};
 };
 
 export default async function handler(req, res) {
