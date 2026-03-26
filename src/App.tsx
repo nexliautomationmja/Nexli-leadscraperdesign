@@ -5156,14 +5156,27 @@ export default function App() {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-      if (!session?.user) {
-        setUserProfile(null);
-        setAllLeads([]);
-        setCampaigns([]);
-        setEmailTemplates([]);
-        setEmailLogs([]);
-      }
+      // Only update user state if the user ID actually changed (prevents unnecessary re-renders on tab switch)
+      setUser(prevUser => {
+        const newUserId = session?.user?.id;
+        const prevUserId = prevUser?.id;
+
+        // If user IDs are the same, don't update state (prevents loading screen on tab switch)
+        if (newUserId === prevUserId) {
+          return prevUser;
+        }
+
+        // User changed (login/logout), update state and clear data if logged out
+        if (!session?.user) {
+          setUserProfile(null);
+          setAllLeads([]);
+          setCampaigns([]);
+          setEmailTemplates([]);
+          setEmailLogs([]);
+        }
+
+        return session?.user || null;
+      });
     });
 
     return () => subscription.unsubscribe();
