@@ -2161,7 +2161,7 @@ const DashboardView = ({
       )}
 
       {/* Sender Performance A/B/C/D Testing */}
-      {emailLogs.length > 0 && (() => {
+      {(() => {
         // Calculate metrics for each sender
         const senderMetrics = SENDER_EMAILS.map(sender => {
           const senderLogs = emailLogs.filter(log => log.senderEmail === sender.email);
