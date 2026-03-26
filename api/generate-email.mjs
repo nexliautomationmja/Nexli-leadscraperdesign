@@ -4,11 +4,16 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const EMAIL_VARIATIONS = {
   ai_disruption: {
     name: 'AI Disruption & Ownership',
-    prompt: (lead, postSummary) => `You are an expert cold email writer specializing in pain-based outreach for accounting firms.
+    prompt: (lead, postSummary, sender) => `You are writing as ${sender.name}, ${sender.role} at Nexli Automation.
+
+SENDER PERSONALITY & VOICE:
+${sender.personality}
 
 Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
 
 ${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
+
+IMPORTANT: Write this email in ${sender.name}'s voice and personality as described above. The tone and style should authentically match ${sender.name}'s character.
 
 CRITICAL REQUIREMENTS - AI DISRUPTION ANGLE:
 - Subject line: 4-8 words, mention "AI" or "software" or specific pain, NO spam words
@@ -30,7 +35,7 @@ CRITICAL REQUIREMENTS - AI DISRUPTION ANGLE:
 - Close: Soft, consultative CTA
   * "Worth exploring before the squeeze hits?"
   * "Open to a quick conversation about ownership models?"
-  * Sign off as "The Nexli Team"
+  * Sign off with ${sender.name}'s name (e.g., "Best, ${sender.name}")
 
 TONE: Forward-thinking, protective (like warning a peer), not salesy.
 
@@ -42,11 +47,16 @@ Return ONLY valid JSON:
 
   cost_savings: {
     name: 'Cost Savings Focus',
-    prompt: (lead, postSummary) => `You are an expert cold email writer specializing in pain-based outreach for accounting firms.
+    prompt: (lead, postSummary, sender) => `You are writing as ${sender.name}, ${sender.role} at Nexli Automation.
+
+SENDER PERSONALITY & VOICE:
+${sender.personality}
 
 Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
 
 ${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
+
+IMPORTANT: Write this email in ${sender.name}'s voice and personality as described above. The tone and style should authentically match ${sender.name}'s character.
 
 CRITICAL REQUIREMENTS - COST SAVINGS ANGLE:
 - Subject line: 4-8 words, include number/cost, NO spam words
@@ -68,7 +78,7 @@ CRITICAL REQUIREMENTS - COST SAVINGS ANGLE:
 - Close: Soft, consultative CTA
   * "Worth running the numbers together?"
   * "Curious what consolidation could save you specifically?"
-  * Sign off as "The Nexli Team"
+  * Sign off with ${sender.name}'s name (e.g., "Best, ${sender.name}")
 
 TONE: Financial advisor helping them find waste, not salesy.
 
@@ -80,11 +90,16 @@ Return ONLY valid JSON:
 
   time_efficiency: {
     name: 'Time & Efficiency Focus',
-    prompt: (lead, postSummary) => `You are an expert cold email writer specializing in pain-based outreach for accounting firms.
+    prompt: (lead, postSummary, sender) => `You are writing as ${sender.name}, ${sender.role} at Nexli Automation.
+
+SENDER PERSONALITY & VOICE:
+${sender.personality}
 
 Write a short, personalized cold email to ${lead.name}, ${lead.role} at ${lead.company}.
 
 ${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
+
+IMPORTANT: Write this email in ${sender.name}'s voice and personality as described above. The tone and style should authentically match ${sender.name}'s character.
 
 CRITICAL REQUIREMENTS - TIME/EFFICIENCY ANGLE:
 - Subject line: 4-8 words, mention "time" or "hours" or specific task, NO spam words
@@ -106,7 +121,7 @@ CRITICAL REQUIREMENTS - TIME/EFFICIENCY ANGLE:
 - Close: Soft, consultative CTA
   * "Worth 15 minutes to explore what you could automate?"
   * "Open to seeing how other firms are saving this time?"
-  * Sign off as "The Nexli Team"
+  * Sign off with ${sender.name}'s name (e.g., "Best, ${sender.name}")
 
 TONE: Empathetic peer who knows they're overworked, not salesy.
 
@@ -137,7 +152,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { lead, posts, variation } = req.body;
+    const { lead, posts, variation, sender } = req.body;
+
+    // Validate sender info
+    if (!sender || !sender.name || !sender.personality) {
+      return res.status(400).json({ error: 'Sender information with personality required' });
+    }
 
     // Prepare post summary
     const postSummary = (posts || [])
@@ -151,9 +171,10 @@ export default async function handler(req, res) {
     const variationConfig = EMAIL_VARIATIONS[selectedVariation];
 
     console.log('Selected variation:', selectedVariation);
+    console.log('Sender:', sender.name, '-', sender.role);
 
-    // Generate prompt for selected variation
-    const prompt = variationConfig.prompt(lead, postSummary);
+    // Generate prompt for selected variation with sender personality
+    const prompt = variationConfig.prompt(lead, postSummary, sender);
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

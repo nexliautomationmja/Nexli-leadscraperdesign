@@ -195,12 +195,40 @@ const LEAD_TAGS = [
   { id: 'not-interested', label: 'Not Interested', color: '#DC2626', bg: 'rgba(220, 38, 38, 0.12)' },
 ];
 
-// Sender Email Rotation - A/B/C/D Testing
+// Sender Email Rotation - A/B/C/D Testing with Unique Personalities
 const SENDER_EMAILS = [
-  { name: 'Marcel', email: 'Marcel@nexlioutreach.net', color: '#3B82F6', photo: '/sender-photos/marcel.png' },
-  { name: 'Justine', email: 'Justine@nexlioutreach.net', color: '#8B5CF6', photo: '/sender-photos/justine.png' },
-  { name: 'Bernice', email: 'Bernice@nexlioutreach.net', color: '#EC4899', photo: '/sender-photos/bernice.png' },
-  { name: 'Jian', email: 'Jian@nexlioutreach.net', color: '#10B981', photo: '/sender-photos/jian.png' },
+  {
+    name: 'Marcel',
+    email: 'Marcel@nexlioutreach.net',
+    color: '#3B82F6',
+    photo: '/sender-photos/marcel.png',
+    role: 'Founder',
+    personality: 'Founder of Nexli Automation. Built this experience specifically for CPA firms to offer to their clients. Speaks from the founder\'s perspective with vision and passion for solving CPA pain points. Direct, authentic, and entrepreneurial tone.'
+  },
+  {
+    name: 'Justine',
+    email: 'Justine@nexlioutreach.net',
+    color: '#8B5CF6',
+    photo: '/sender-photos/justine.png',
+    role: 'COO',
+    personality: 'Chief Operating Officer who runs operations and gets things done. Sweet but gritty. Goes above and beyond to serve potential clients. On top of everything. Action-oriented, reliable, and dedicated. Balances warmth with no-nonsense efficiency.'
+  },
+  {
+    name: 'Bernice',
+    email: 'Bernice@nexlioutreach.net',
+    color: '#EC4899',
+    photo: '/sender-photos/bernice.png',
+    role: 'Client Success Lead',
+    personality: 'The nice one who gives genuine compliments. Master persuader who moves prospects to take massive action. Warm, encouraging, and motivational. Uses positive reinforcement and creates urgency through enthusiasm rather than pressure.'
+  },
+  {
+    name: 'Jian',
+    email: 'Jian@nexlioutreach.net',
+    color: '#10B981',
+    photo: '/sender-photos/jian.png',
+    role: 'Solutions Architect',
+    personality: 'The silent killer. Technical expert who breaks down complex concepts so anyone can understand. Makes a 60-year-old CEO understand exactly what the software does. Emphasizes RESULTS over features. Sells the destination, not the flights to get there. Clear, simple, and results-focused.'
+  },
 ];
 
 // --- Lead Scoring ---
@@ -638,7 +666,7 @@ const EmailGenerationModal = ({
   isSending,
 }: {
   lead: Lead;
-  email: { subject: string; body: string } | null;
+  email: { subject: string; body: string; sender?: any } | null;
   isGenerating: boolean;
   error: string;
   onClose: () => void;
@@ -690,6 +718,18 @@ const EmailGenerationModal = ({
                 <p className="text-white/80 text-sm">
                   Personalized for {lead.name}
                 </p>
+                {email?.sender && (
+                  <div className="flex items-center gap-2 mt-2 px-3 py-1.5 rounded-full bg-white/20 backdrop-blur-sm w-fit">
+                    <img
+                      src={email.sender.photo}
+                      alt={email.sender.name}
+                      className="w-5 h-5 rounded-full object-cover border border-white/30"
+                    />
+                    <span className="text-white/90 text-xs font-medium">
+                      From: {email.sender.name}, {email.sender.role}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
             <button
@@ -2612,12 +2652,27 @@ const ScraperView = ({
     setEmailError('');
     setIsGeneratingEmail(true);
 
+    // Get next sender via rotation
+    const sender = getNextSender(senderRotationIndex);
+    setSenderRotationIndex(sender.index);
+
     try {
       // TODO: Optionally fetch LinkedIn posts first for better personalization
       const response = await fetch('/api/generate-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lead, posts: [] }),
+        body: JSON.stringify({
+          lead,
+          posts: [],
+          sender: {
+            name: sender.name,
+            email: sender.email,
+            role: sender.role,
+            personality: sender.personality,
+            photo: sender.photo,
+            color: sender.color,
+          }
+        }),
       });
 
       if (!response.ok) {
@@ -2634,7 +2689,8 @@ const ScraperView = ({
       }
 
       const email = await response.json();
-      setGeneratedEmail(email);
+      // Include sender info with the generated email
+      setGeneratedEmail({ ...email, sender });
     } catch (err: any) {
       setEmailError(err.message || 'Failed to generate email');
     } finally {
@@ -5395,11 +5451,26 @@ export default function App() {
     setEmailErrorForLead('');
     setIsGeneratingEmailForLead(true);
 
+    // Get next sender via rotation
+    const sender = getNextSender(senderRotationIndex);
+    setSenderRotationIndex(sender.index);
+
     try {
       const response = await fetch('/api/generate-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lead, posts: [] }),
+        body: JSON.stringify({
+          lead,
+          posts: [],
+          sender: {
+            name: sender.name,
+            email: sender.email,
+            role: sender.role,
+            personality: sender.personality,
+            photo: sender.photo,
+            color: sender.color,
+          }
+        }),
       });
 
       if (!response.ok) {
@@ -5416,7 +5487,8 @@ export default function App() {
       }
 
       const email = await response.json();
-      setGeneratedEmailForLead(email);
+      // Include sender info with the generated email
+      setGeneratedEmailForLead({ ...email, sender });
     } catch (err: any) {
       setEmailErrorForLead(err.message || 'Failed to generate email');
     } finally {
