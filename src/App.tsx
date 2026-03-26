@@ -6369,6 +6369,7 @@ export default function App() {
                             <th className="px-5 py-3.5">Lead</th>
                             <th className="px-5 py-3.5">Role</th>
                             <th className="px-5 py-3.5">Company</th>
+                            <th className="px-5 py-3.5">Rating</th>
                             <th className="px-5 py-3.5">Status</th>
                             <th className="px-5 py-3.5"></th>
                           </tr>
@@ -6537,6 +6538,27 @@ export default function App() {
                                     </div>
                                   )}
                                 </div>
+                              </td>
+                              <td className="px-5 py-4">
+                                {lead.googleRating ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-sm font-bold" style={{
+                                      color: lead.googleRating >= 4.5 ? '#10B981' :
+                                             lead.googleRating >= 3.5 ? '#F59E0B' : '#EF4444'
+                                    }}>
+                                      ⭐ {lead.googleRating.toFixed(1)}
+                                    </span>
+                                    {lead.googleReviewCount && lead.googleReviewCount > 0 && (
+                                      <span className="text-[10px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                                        ({lead.googleReviewCount})
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                    —
+                                  </span>
+                                )}
                               </td>
                               <td className="px-5 py-4">
                                 <span
