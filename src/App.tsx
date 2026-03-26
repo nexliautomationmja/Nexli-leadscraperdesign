@@ -5223,66 +5223,57 @@ export default function App() {
     loadUserData();
   }, [user]);
 
-  // Smart reload: Only reload data if tab inactive for 30+ minutes
-  useEffect(() => {
-    if (!user) return;
-
-    let lastActiveTime = Date.now();
-
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible') {
-        const inactiveMinutes = (Date.now() - lastActiveTime) / 1000 / 60;
-
-        // Only reload if inactive for 30+ minutes
-        if (inactiveMinutes >= 30) {
-          console.log(`Tab was inactive for ${Math.round(inactiveMinutes)} minutes, refreshing data...`);
-
-          try {
-            // Reload leads from Supabase
-            const { data: leads } = await supabase
-              .from('leads')
-              .select('*')
-              .eq('user_id', user.id)
-              .order('created_at', { ascending: false });
-
-            if (leads) {
-              const mappedLeads: Lead[] = leads.map((dbLead: any) => ({
-                id: dbLead.id,
-                name: dbLead.name,
-                email: dbLead.email,
-                company: dbLead.company,
-                role: dbLead.role,
-                linkedin: dbLead.linkedin,
-                phone: dbLead.phone,
-                city: dbLead.city,
-                state: dbLead.state,
-                country: dbLead.country,
-                location: dbLead.location,
-                website: dbLead.website,
-                orgWebsite: dbLead.org_website,
-                orgSize: dbLead.org_size,
-                orgIndustry: dbLead.org_industry,
-                score: dbLead.score,
-                status: dbLead.status || 'new',
-                tags: dbLead.tags || [],
-              }));
-
-              setAllLeads(mappedLeads);
-              addNotification('info', 'Data Refreshed', 'Loaded latest data from database');
-            }
-          } catch (error) {
-            console.error('Error refreshing data:', error);
-          }
-        }
-
-        // Update last active time
-        lastActiveTime = Date.now();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [user]);
+  // DISABLED: Auto-reload on tab visibility change
+  // User needs to freely navigate to lead websites without page refreshing
+  // Data can be manually refreshed if needed
+  // useEffect(() => {
+  //   if (!user) return;
+  //   let lastActiveTime = Date.now();
+  //   const handleVisibilityChange = async () => {
+  //     if (document.visibilityState === 'visible') {
+  //       const inactiveMinutes = (Date.now() - lastActiveTime) / 1000 / 60;
+  //       if (inactiveMinutes >= 30) {
+  //         console.log(`Tab was inactive for ${Math.round(inactiveMinutes)} minutes, refreshing data...`);
+  //         try {
+  //           const { data: leads } = await supabase
+  //             .from('leads')
+  //             .select('*')
+  //             .eq('user_id', user.id)
+  //             .order('created_at', { ascending: false });
+  //           if (leads) {
+  //             const mappedLeads: Lead[] = leads.map((dbLead: any) => ({
+  //               id: dbLead.id,
+  //               name: dbLead.name,
+  //               email: dbLead.email,
+  //               company: dbLead.company,
+  //               role: dbLead.role,
+  //               linkedin: dbLead.linkedin,
+  //               phone: dbLead.phone,
+  //               city: dbLead.city,
+  //               state: dbLead.state,
+  //               country: dbLead.country,
+  //               location: dbLead.location,
+  //               website: dbLead.website,
+  //               orgWebsite: dbLead.org_website,
+  //               orgSize: dbLead.org_size,
+  //               orgIndustry: dbLead.org_industry,
+  //               score: dbLead.score,
+  //               status: dbLead.status || 'new',
+  //               tags: dbLead.tags || [],
+  //             }));
+  //             setAllLeads(mappedLeads);
+  //             addNotification('info', 'Data Refreshed', 'Loaded latest data from database');
+  //           }
+  //         } catch (error) {
+  //           console.error('Error refreshing data:', error);
+  //         }
+  //       }
+  //       lastActiveTime = Date.now();
+  //     }
+  //   };
+  //   document.addEventListener('visibilitychange', handleVisibilityChange);
+  //   return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  // }, [user]);
 
   // Scheduled campaign scheduler - runs every minute
   useEffect(() => {
