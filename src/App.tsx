@@ -353,30 +353,25 @@ async function lookupWebsite(companyName: string, city?: string, state?: string)
 
 // Look up Google rating and review count using Google Places API
 async function lookupGoogleRating(companyName: string, city?: string, state?: string): Promise<{ rating: number; reviewCount: number } | null> {
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-
-  if (!apiKey) {
-    console.warn('Google Maps API key not configured');
-    return null;
-  }
-
   try {
-    // Build search query: "Company Name City State"
-    const query = [companyName, city, state].filter(Boolean).join(' ');
-    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${apiKey}`;
+    // Call serverless API endpoint (avoids CORS issues)
+    const response = await fetch('/api/lookup-google-rating', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyName, city, state }),
+    });
 
-    const response = await fetch(url);
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('API error:', error);
+      return null;
+    }
+
     const data = await response.json();
 
-    if (data.status === 'OK' && data.results && data.results.length > 0) {
-      const place = data.results[0];
-      const rating = place.rating || null;
-      const reviewCount = place.user_ratings_total || 0;
-
-      if (rating) {
-        console.log(`Found rating for ${companyName}: ${rating}⭐ (${reviewCount} reviews)`);
-        return { rating, reviewCount };
-      }
+    if (data.rating) {
+      console.log(`Found rating for ${companyName}: ${data.rating}⭐ (${data.reviewCount} reviews)`);
+      return { rating: data.rating, reviewCount: data.reviewCount };
     }
 
     return null;
