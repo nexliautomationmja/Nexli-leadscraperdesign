@@ -3773,6 +3773,8 @@ function CampaignsView({
   emailTemplates,
   scheduledCampaigns,
   setScheduledCampaigns,
+  scheduledEmails,
+  setScheduledEmails,
   addNotification,
 }: {
   isDark: boolean;
@@ -3784,6 +3786,8 @@ function CampaignsView({
   emailTemplates: EmailTemplate[];
   scheduledCampaigns: string[];
   setScheduledCampaigns: React.Dispatch<React.SetStateAction<string[]>>;
+  scheduledEmails: ScheduledEmail[];
+  setScheduledEmails: React.Dispatch<React.SetStateAction<ScheduledEmail[]>>;
   addNotification: (type: 'success' | 'info' | 'warning' | 'error', title: string, message: string, icon?: 'lead' | 'email' | 'campaign' | 'reply' | 'error') => void;
 }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -3791,6 +3795,11 @@ function CampaignsView({
   const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  // Scheduled emails management state
+  const [selectedScheduledEmail, setSelectedScheduledEmail] = useState<ScheduledEmail | null>(null);
+  const [showEditScheduledModal, setShowEditScheduledModal] = useState(false);
+  const [showPreviewScheduledModal, setShowPreviewScheduledModal] = useState(false);
 
   // Campaign creation form state
   const [campaignName, setCampaignName] = useState('');
@@ -3851,6 +3860,41 @@ function CampaignsView({
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  // Scheduled email management functions
+  const handleCancelScheduledEmail = (emailId: string) => {
+    if (confirm('Are you sure you want to cancel this scheduled email?')) {
+      setScheduledEmails((prev) => prev.filter((e) => e.id !== emailId));
+      addNotification('success', 'Email Cancelled', 'Scheduled email has been cancelled', 'email');
+    }
+  };
+
+  const handleEditScheduledEmail = (updatedEmail: ScheduledEmail) => {
+    setScheduledEmails((prev) =>
+      prev.map((e) => (e.id === updatedEmail.id ? updatedEmail : e))
+    );
+    addNotification('success', 'Email Updated', 'Scheduled email has been updated', 'email');
+    setShowEditScheduledModal(false);
+    setSelectedScheduledEmail(null);
+  };
+
+  const getTimeUntilScheduled = (scheduledFor: string) => {
+    const now = new Date().getTime();
+    const scheduled = new Date(scheduledFor).getTime();
+    const diffMs = scheduled - now;
+    const diffHours = diffMs / (1000 * 60 * 60);
+
+    if (diffHours < 0) return { text: 'Overdue', urgency: 'red' as const };
+    if (diffHours < 1) {
+      const diffMins = Math.round(diffMs / (1000 * 60));
+      return { text: `${diffMins}m`, urgency: 'red' as const };
+    }
+    if (diffHours < 24) {
+      return { text: `${Math.round(diffHours)}h`, urgency: 'yellow' as const };
+    }
+    const diffDays = Math.round(diffHours / 24);
+    return { text: `${diffDays}d`, urgency: 'green' as const };
   };
 
   // Calculate total metrics across all campaigns
@@ -3972,6 +4016,138 @@ function CampaignsView({
           </div>
         </div>
       </div>
+
+      {/* Scheduled Emails Section */}
+      {scheduledEmails.length > 0 && (
+        <div className="glass-card p-4 md:p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg md:text-xl font-bold flex items-center gap-2">
+              <Clock className="w-5 h-5 text-amber-500" />
+              Scheduled Emails ({scheduledEmails.length})
+            </h2>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b-2" style={{ borderColor: 'var(--border-color)' }}>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    Recipient
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    Subject
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    Scheduled For
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    Sender
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    Time Until
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {scheduledEmails
+                  .sort((a, b) => new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime())
+                  .map((email) => {
+                    const timeInfo = getTimeUntilScheduled(email.scheduledFor);
+                    const urgencyColors = {
+                      red: { bg: 'rgba(239, 68, 68, 0.15)', text: '#EF4444', border: '#EF4444' },
+                      yellow: { bg: 'rgba(245, 158, 11, 0.15)', text: '#F59E0B', border: '#F59E0B' },
+                      green: { bg: 'rgba(16, 185, 129, 0.15)', text: '#10B981', border: '#10B981' },
+                    };
+                    const colors = urgencyColors[timeInfo.urgency];
+
+                    return (
+                      <tr
+                        key={email.id}
+                        className="border-b transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        style={{ borderColor: 'var(--border-subtle)' }}
+                      >
+                        <td className="px-4 py-4">
+                          <div>
+                            <p className="font-medium text-sm">{email.lead.name}</p>
+                            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                              {email.lead.email}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <p className="text-sm font-medium line-clamp-1">{email.subject}</p>
+                        </td>
+                        <td className="px-4 py-4">
+                          <p className="text-sm">
+                            {new Date(email.scheduledFor).toLocaleString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true,
+                            })}
+                          </p>
+                        </td>
+                        <td className="px-4 py-4">
+                          <p className="text-sm font-medium">{email.senderName}</p>
+                          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                            {email.senderEmail}
+                          </p>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span
+                            className="px-2.5 py-1 rounded-full text-xs font-bold"
+                            style={{
+                              background: colors.bg,
+                              color: colors.text,
+                              border: `1px solid ${colors.border}`,
+                            }}
+                          >
+                            {timeInfo.text}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedScheduledEmail(email);
+                                setShowPreviewScheduledModal(true);
+                              }}
+                              className="p-2 rounded-lg transition-all hover:bg-gray-100 dark:hover:bg-gray-700"
+                              title="Preview Email"
+                            >
+                              <Eye className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedScheduledEmail(email);
+                                setShowEditScheduledModal(true);
+                              }}
+                              className="p-2 rounded-lg transition-all hover:bg-gray-100 dark:hover:bg-gray-700"
+                              title="Edit Email"
+                            >
+                              <Edit2 className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                            </button>
+                            <button
+                              onClick={() => handleCancelScheduledEmail(email.id)}
+                              className="p-2 rounded-lg transition-all hover:bg-red-50 dark:hover:bg-red-900/20"
+                              title="Cancel Email"
+                            >
+                              <Trash2 className="w-4 h-4 text-red-500" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Active Campaigns Progress */}
       {campaigns.filter((c) => c.status === 'active').length > 0 && (
@@ -4797,6 +4973,250 @@ function CampaignsView({
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   Looks Good!
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Scheduled Email Modal */}
+      {showEditScheduledModal && selectedScheduledEmail && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="glass-card p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <Edit2 className="w-6 h-6 text-blue-500" />
+                Edit Scheduled Email
+              </h2>
+              <button
+                onClick={() => {
+                  setShowEditScheduledModal(false);
+                  setSelectedScheduledEmail(null);
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Recipient Info */}
+              <div className="p-4 rounded-lg" style={{ background: 'var(--bg-elevated)' }}>
+                <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                  Recipient
+                </p>
+                <p className="font-bold mt-1">{selectedScheduledEmail.lead.name}</p>
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  {selectedScheduledEmail.lead.email}
+                </p>
+              </div>
+
+              {/* Edit Subject */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Subject Line</label>
+                <input
+                  type="text"
+                  defaultValue={selectedScheduledEmail.subject}
+                  id="edit-subject"
+                  className="w-full px-4 py-3 rounded-lg border-2 transition-all"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    borderColor: 'var(--border-color)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
+
+              {/* Edit Body */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Email Body</label>
+                <textarea
+                  defaultValue={selectedScheduledEmail.body}
+                  id="edit-body"
+                  rows={12}
+                  className="w-full px-4 py-3 rounded-lg border-2 transition-all resize-none"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    borderColor: 'var(--border-color)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
+
+              {/* Edit Schedule Time */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Scheduled Time</label>
+                <input
+                  type="datetime-local"
+                  defaultValue={new Date(selectedScheduledEmail.scheduledFor).toISOString().slice(0, 16)}
+                  id="edit-schedule-time"
+                  min={new Date().toISOString().slice(0, 16)}
+                  className="w-full px-4 py-3 rounded-lg border-2 transition-all"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    borderColor: 'var(--border-color)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => {
+                    setShowEditScheduledModal(false);
+                    setSelectedScheduledEmail(null);
+                  }}
+                  className="flex-1 px-4 py-3 rounded-lg font-medium border-2 transition-all"
+                  style={{
+                    borderColor: 'var(--border-color)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const subject = (document.getElementById('edit-subject') as HTMLInputElement)?.value;
+                    const body = (document.getElementById('edit-body') as HTMLTextAreaElement)?.value;
+                    const scheduleTime = (document.getElementById('edit-schedule-time') as HTMLInputElement)?.value;
+
+                    if (subject && body && scheduleTime) {
+                      const updatedEmail: ScheduledEmail = {
+                        ...selectedScheduledEmail,
+                        subject,
+                        body,
+                        scheduledFor: new Date(scheduleTime).toISOString(),
+                      };
+                      handleEditScheduledEmail(updatedEmail);
+                    }
+                  }}
+                  className="flex-1 px-4 py-3 rounded-lg font-medium nexli-btn-gradient"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Scheduled Email Modal */}
+      {showPreviewScheduledModal && selectedScheduledEmail && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="glass-card p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <Eye className="w-6 h-6 text-purple-500" />
+                Preview Scheduled Email
+              </h2>
+              <button
+                onClick={() => {
+                  setShowPreviewScheduledModal(false);
+                  setSelectedScheduledEmail(null);
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Email Header Info */}
+              <div className="p-4 rounded-lg" style={{ background: 'var(--bg-elevated)' }}>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                      FROM
+                    </p>
+                    <p className="font-medium">{selectedScheduledEmail.senderName}</p>
+                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                      {selectedScheduledEmail.senderEmail}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                      TO
+                    </p>
+                    <p className="font-medium">{selectedScheduledEmail.lead.name}</p>
+                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                      {selectedScheduledEmail.lead.email}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                  <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                    SCHEDULED FOR
+                  </p>
+                  <p className="font-medium">
+                    {new Date(selectedScheduledEmail.scheduledFor).toLocaleString('en-US', {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true,
+                    })}
+                  </p>
+                  <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                    {(() => {
+                      const timeInfo = getTimeUntilScheduled(selectedScheduledEmail.scheduledFor);
+                      return `Sends in ${timeInfo.text}`;
+                    })()}
+                  </p>
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
+                  SUBJECT
+                </p>
+                <p className="font-bold text-lg">{selectedScheduledEmail.subject}</p>
+              </div>
+
+              {/* Email Body */}
+              <div>
+                <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
+                  MESSAGE
+                </p>
+                <div
+                  className="p-4 rounded-lg whitespace-pre-wrap"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  {selectedScheduledEmail.body}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => {
+                    setShowPreviewScheduledModal(false);
+                    setSelectedScheduledEmail(null);
+                  }}
+                  className="flex-1 px-4 py-3 rounded-lg font-medium border-2 transition-all"
+                  style={{
+                    borderColor: 'var(--border-color)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPreviewScheduledModal(false);
+                    setShowEditScheduledModal(true);
+                  }}
+                  className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 nexli-btn-gradient"
+                >
+                  <Edit2 className="w-4 h-4" />
+                  Edit Email
                 </button>
               </div>
             </div>
@@ -6707,6 +7127,8 @@ export default function App() {
                   emailTemplates={emailTemplates}
                   scheduledCampaigns={scheduledCampaigns}
                   setScheduledCampaigns={setScheduledCampaigns}
+                  scheduledEmails={scheduledEmails}
+                  setScheduledEmails={setScheduledEmails}
                   addNotification={addNotification}
                 />
               )}
