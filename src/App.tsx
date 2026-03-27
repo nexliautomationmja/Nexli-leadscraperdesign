@@ -5455,9 +5455,10 @@ export default function App() {
         console.log(`📧 Triggering server-side email check at ${new Date().toLocaleTimeString()}`);
 
         // Call the server endpoint to check and send overdue emails
-        const response = await fetch('/api/send-scheduled-emails', {
+        const response = await fetch('/api/send-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ checkScheduled: true }),
         });
 
         if (response.ok) {
