@@ -6481,7 +6481,7 @@ export default function App() {
     const now = new Date().toISOString();
     const testLeads: Lead[] = [
       {
-        id: `test-lead-${Date.now()}-1`,
+        id: crypto.randomUUID(),
         name: 'Gravy Burner',
         email: 'mallen3211@gmail.com',
         company: 'Test Company',
@@ -6493,7 +6493,7 @@ export default function App() {
         createdAt: now,
       },
       {
-        id: `test-lead-${Date.now()}-2`,
+        id: crypto.randomUUID(),
         name: 'Hammy Banks',
         email: 'allenmarcel34@gmail.com',
         company: 'Test Company',
