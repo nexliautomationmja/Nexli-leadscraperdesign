@@ -2597,7 +2597,7 @@ const ScraperView = ({
   const [error, setError] = useState('');
   const [totalResults, setTotalResults] = useState(100);
   const [emailStatusFilter, setEmailStatusFilter] = useState<string>('verified');
-  const [stateFilter, setStateFilter] = useState<string>('');
+  const [stateFilter, setStateFilter] = useState<string[]>([]); // Changed to array for multi-select
   const [cityFilter, setCityFilter] = useState<string>('');
 
   // Website enrichment state
@@ -2822,9 +2822,9 @@ const ScraperView = ({
       filters.companyKeywordIncludes = searchQuery.split(',').map((k: string) => k.trim()).filter(Boolean);
     }
 
-    // State filter
-    if (stateFilter) {
-      filters.companyLocationStateIncludes = [stateFilter];
+    // State filter (now supports multiple states)
+    if (stateFilter.length > 0) {
+      filters.companyLocationStateIncludes = stateFilter;
     }
 
     // City filter
@@ -3182,19 +3182,59 @@ const ScraperView = ({
             </div>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                State
+                States (Multi-Select)
               </label>
-              <select
-                value={stateFilter}
-                onChange={(e) => setStateFilter(e.target.value)}
-                className="w-full rounded-xl px-3 py-2.5 text-sm font-medium outline-none cursor-pointer"
-                style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: 'none' }}
-              >
-                <option value="">All States</option>
-                {US_STATES.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+              <details className="relative">
+                <summary
+                  className="w-full rounded-xl px-3 py-2.5 text-sm font-medium cursor-pointer list-none"
+                  style={{ background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                >
+                  {stateFilter.length === 0 ? 'All States' : `${stateFilter.length} selected`}
+                </summary>
+                <div
+                  className="absolute z-10 mt-1 w-full max-h-60 overflow-y-auto rounded-xl p-2 shadow-lg"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+                >
+                  <div className="flex items-center gap-2 p-2 mb-2 border-b" style={{ borderColor: 'var(--border-color)' }}>
+                    <button
+                      onClick={() => setStateFilter([])}
+                      className="text-xs font-bold px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      Clear All
+                    </button>
+                    <button
+                      onClick={() => setStateFilter([...US_STATES])}
+                      className="text-xs font-bold px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      Select All
+                    </button>
+                  </div>
+                  {US_STATES.map((state) => (
+                    <label
+                      key={state}
+                      className="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={stateFilter.includes(state)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setStateFilter([...stateFilter, state]);
+                          } else {
+                            setStateFilter(stateFilter.filter((s) => s !== state));
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                        {state}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </details>
             </div>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
@@ -3378,6 +3418,11 @@ const ScraperView = ({
                     {selectedCompanySizes.length === 0 ? '⚠️ No sizes selected' :
                      selectedCompanySizes.every(s => ['1-10', '11-20', '21-50'].includes(s)) ? '🏢 Small firms only' :
                      '🏭 Multiple sizes'}
+                  </span>
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                    {stateFilter.length === 0 ? '🌎 All states' :
+                     stateFilter.length === 1 ? `📍 ${stateFilter[0]}` :
+                     `📍 ${stateFilter.length} states`}
                   </span>
                 </div>
               </div>
