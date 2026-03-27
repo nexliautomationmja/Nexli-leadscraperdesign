@@ -5457,11 +5457,20 @@ export default function App() {
     const interval = setInterval(() => {
       const now = new Date();
 
+      if (scheduledEmails.length > 0) {
+        console.log(`📧 Scheduler checking ${scheduledEmails.length} scheduled emails at ${now.toLocaleTimeString()}`);
+      }
+
       scheduledEmails.forEach(async (scheduledEmail) => {
         const scheduledTime = new Date(scheduledEmail.scheduledFor);
+        const timeUntilSend = scheduledTime.getTime() - now.getTime();
+        const minutesUntil = Math.round(timeUntilSend / 60000);
+
+        console.log(`  → ${scheduledEmail.lead.name}: ${minutesUntil > 0 ? `${minutesUntil} min until send` : 'SENDING NOW'} (scheduled for ${scheduledTime.toLocaleTimeString()})`);
 
         // If scheduled time has passed, send the email
         if (now >= scheduledTime) {
+          console.log(`  ✅ Sending email to ${scheduledEmail.lead.name}`);
           try {
             // Send email via Instantly.ai with rotated sender
             const response = await fetch('/api/send-email', {
@@ -5478,6 +5487,8 @@ export default function App() {
             });
 
             if (response.ok) {
+              console.log(`  ✅ Successfully sent email to ${scheduledEmail.lead.name}`);
+
               // Remove from scheduled emails
               setScheduledEmails(prev => prev.filter(e => e.id !== scheduledEmail.id));
 
@@ -5499,6 +5510,8 @@ export default function App() {
 
               // Show notification
               addNotification('success', 'Scheduled Email Sent', `Email sent to ${scheduledEmail.lead.name}`, 'email');
+            } else {
+              console.error(`  ❌ Failed to send email to ${scheduledEmail.lead.name}: ${response.statusText}`);
             }
           } catch (error) {
             console.error('Failed to send scheduled email:', error);
@@ -6456,7 +6469,7 @@ export default function App() {
       addNotification(
         'success',
         'Emails Scheduled!',
-        `Generated and scheduled ${successCount} emails starting ${new Date(scheduleFor).toLocaleString()} (spread over 2-3 min intervals)${failCount > 0 ? ` • ${failCount} failed` : ''}`,
+        `Generated and scheduled ${successCount} emails starting ${new Date(scheduleFor).toLocaleString()} (spread over 2-3 min intervals)${failCount > 0 ? ` • ${failCount} failed` : ''} ⚠️ KEEP THIS PAGE OPEN for emails to send!`,
         'email'
       );
     } else {
