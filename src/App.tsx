@@ -6141,11 +6141,43 @@ export default function App() {
     });
   };
 
+  // Get filtered leads based on active filters
+  const getFilteredLeads = () => {
+    return allLeads.filter((lead) => {
+      // Tag filter
+      const tagMatch = !activeTagFilter || lead.tags?.includes(activeTagFilter);
+      // Website filter
+      const websiteMatch =
+        websiteFilter === 'all' ||
+        (websiteFilter === 'has-website' && lead.website) ||
+        (websiteFilter === 'no-website' && !lead.website);
+      // Favorites filter (3 states: all, favorites-only, exclude-favorites)
+      const favoriteMatch =
+        favoritesFilter === 'all' ||
+        (favoritesFilter === 'favorites-only' && lead.isFavorite) ||
+        (favoritesFilter === 'exclude-favorites' && !lead.isFavorite);
+      return tagMatch && websiteMatch && favoriteMatch;
+    });
+  };
+
   const handleToggleSelectAll = () => {
-    if (selectedLeads.size === allLeads.length) {
-      setSelectedLeads(new Set());
+    const filteredLeads = getFilteredLeads();
+    const allFilteredSelected = filteredLeads.length > 0 && filteredLeads.every(lead => selectedLeads.has(lead.id));
+
+    if (allFilteredSelected) {
+      // Deselect all filtered leads
+      setSelectedLeads(prev => {
+        const newSet = new Set(prev);
+        filteredLeads.forEach(lead => newSet.delete(lead.id));
+        return newSet;
+      });
     } else {
-      setSelectedLeads(new Set(allLeads.map((l) => l.id)));
+      // Select all filtered leads
+      setSelectedLeads(prev => {
+        const newSet = new Set(prev);
+        filteredLeads.forEach(lead => newSet.add(lead.id));
+        return newSet;
+      });
     }
   };
 
@@ -7107,7 +7139,10 @@ export default function App() {
                             <th className="px-5 py-3.5 w-12">
                               <input
                                 type="checkbox"
-                                checked={selectedLeads.size === allLeads.length && allLeads.length > 0}
+                                checked={(() => {
+                                  const filteredLeads = getFilteredLeads();
+                                  return filteredLeads.length > 0 && filteredLeads.every(lead => selectedLeads.has(lead.id));
+                                })()}
                                 onChange={handleToggleSelectAll}
                                 className="w-4 h-4 rounded cursor-pointer"
                                 style={{ accentColor: 'var(--gradient-start)' }}
@@ -7122,23 +7157,7 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {allLeads
-                            .filter((lead) => {
-                              // Tag filter
-                              const tagMatch = !activeTagFilter || lead.tags?.includes(activeTagFilter);
-                              // Website filter
-                              const websiteMatch =
-                                websiteFilter === 'all' ||
-                                (websiteFilter === 'has-website' && lead.website) ||
-                                (websiteFilter === 'no-website' && !lead.website);
-                              // Favorites filter (3 states: all, favorites-only, exclude-favorites)
-                              const favoriteMatch =
-                                favoritesFilter === 'all' ||
-                                (favoritesFilter === 'favorites-only' && lead.isFavorite) ||
-                                (favoritesFilter === 'exclude-favorites' && !lead.isFavorite);
-                              return tagMatch && websiteMatch && favoriteMatch;
-                            })
-                            .map((lead, idx) => (
+                          {getFilteredLeads().map((lead, idx) => (
                             <tr
                               key={lead.id}
                               className="group transition-colors"
