@@ -40,6 +40,7 @@ import {
   Trash2,
   Clock,
   Edit,
+  Edit2,
   LogOut,
   Camera,
   Check,
