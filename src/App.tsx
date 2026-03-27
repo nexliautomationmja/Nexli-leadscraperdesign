@@ -6471,6 +6471,7 @@ export default function App() {
   const handleAddTestLeads = async () => {
     if (!user) return;
 
+    const now = new Date().toISOString();
     const testLeads: Lead[] = [
       {
         id: `test-lead-${Date.now()}-1`,
@@ -6482,6 +6483,7 @@ export default function App() {
         status: 'verified',
         score: 75,
         tags: ['test'],
+        createdAt: now,
       },
       {
         id: `test-lead-${Date.now()}-2`,
@@ -6493,6 +6495,7 @@ export default function App() {
         status: 'verified',
         score: 80,
         tags: ['test'],
+        createdAt: now,
       },
     ];
 
@@ -6512,6 +6515,7 @@ export default function App() {
             score: lead.score,
             status: lead.status,
             tags: lead.tags || [],
+            created_at: lead.createdAt,
           }))
         );
 
