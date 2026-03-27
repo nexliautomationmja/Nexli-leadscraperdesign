@@ -2624,13 +2624,15 @@ const ScraperView = ({
   // Decision Maker Filters (NEW)
   const [decisionMakersOnly, setDecisionMakersOnly] = useState(true);
   const [selectedCompanySizes, setSelectedCompanySizes] = useState<string[]>(['1-10', '11-20', '21-50']); // Default: Small firms
+  // TIGHTENED CRITERIA: Only Owner and President titles (matches CPA Owner, Business Owner, President, etc.)
   const [includedTitles] = useState([
-    'owner', 'co-owner', 'founder', 'co-founder', 'managing partner', 'partner',
-    'principal', 'ceo', 'president', 'managing director', 'director'
+    'owner',      // Matches: Owner, CPA Owner, Business Owner, Co-Owner, etc.
+    'president'   // Matches: President, Vice President, etc.
   ]);
   const [excludedTitles] = useState([
     'staff accountant', 'senior accountant', 'associate', 'junior', 'analyst',
-    'specialist', 'coordinator', 'assistant', 'bookkeeper', 'controller'
+    'specialist', 'coordinator', 'assistant', 'bookkeeper', 'controller',
+    'manager', 'supervisor', 'team lead', 'director', 'vice president'  // Added more exclusions
   ]);
 
   const US_STATES = [
