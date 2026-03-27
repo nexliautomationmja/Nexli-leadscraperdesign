@@ -5454,7 +5454,8 @@ export default function App() {
 
   // Email Scheduler - Check every minute for scheduled emails to send
   useEffect(() => {
-    const interval = setInterval(() => {
+    // Function to check and send scheduled emails
+    const checkAndSendEmails = () => {
       const now = new Date();
 
       if (scheduledEmails.length > 0) {
@@ -5518,7 +5519,13 @@ export default function App() {
           }
         }
       });
-    }, 60000); // Check every minute
+    };
+
+    // Run immediately on mount to send any overdue emails
+    checkAndSendEmails();
+
+    // Then check every minute
+    const interval = setInterval(checkAndSendEmails, 60000);
 
     return () => clearInterval(interval);
   }, [scheduledEmails]);
@@ -6469,7 +6476,7 @@ export default function App() {
       addNotification(
         'success',
         'Emails Scheduled!',
-        `Generated and scheduled ${successCount} emails starting ${new Date(scheduleFor).toLocaleString()} (spread over 2-3 min intervals)${failCount > 0 ? ` • ${failCount} failed` : ''} ⚠️ KEEP THIS PAGE OPEN for emails to send!`,
+        `Generated and scheduled ${successCount} emails starting ${new Date(scheduleFor).toLocaleString()} (spread over 2-3 min intervals)${failCount > 0 ? ` • ${failCount} failed` : ''}. Any overdue emails will send automatically when you next open the page.`,
         'email'
       );
     } else {
