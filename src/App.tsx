@@ -5354,7 +5354,7 @@ export default function App() {
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [websiteFilter, setWebsiteFilter] = useState<'all' | 'has-website' | 'no-website'>('all');
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [favoritesFilter, setFavoritesFilter] = useState<'all' | 'favorites-only' | 'exclude-favorites'>('all');
   const [isEnrichingRatings, setIsEnrichingRatings] = useState(false);
   const [ratingEnrichmentProgress, setRatingEnrichmentProgress] = useState({ current: 0, total: 0 });
 
@@ -6933,20 +6933,40 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Favorites Filter */}
+                  {/* Favorites Filter (3-state cycle) */}
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setFavoritesOnly(!favoritesOnly)}
+                      onClick={() => {
+                        setFavoritesFilter(prev =>
+                          prev === 'all' ? 'favorites-only' :
+                          prev === 'favorites-only' ? 'exclude-favorites' : 'all'
+                        );
+                      }}
                       className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-2"
                       style={{
-                        background: favoritesOnly ? 'rgba(251, 191, 36, 0.1)' : 'var(--bg-elevated)',
-                        color: favoritesOnly ? '#FBBF24' : 'var(--text-muted)',
-                        border: favoritesOnly ? '1px solid #FBBF24' : '1px solid var(--border-color)',
+                        background: favoritesFilter !== 'all' ? 'rgba(251, 191, 36, 0.1)' : 'var(--bg-elevated)',
+                        color: favoritesFilter !== 'all' ? '#FBBF24' : 'var(--text-muted)',
+                        border: favoritesFilter !== 'all' ? '1px solid #FBBF24' : '1px solid var(--border-color)',
                       }}
+                      title={
+                        favoritesFilter === 'all' ? 'Click to show favorites only' :
+                        favoritesFilter === 'favorites-only' ? 'Click to exclude favorites' :
+                        'Click to show all'
+                      }
                     >
-                      <span className="text-base sm:text-lg">{favoritesOnly ? '⭐' : '☆'}</span>
-                      <span className="hidden sm:inline">Favorites Only ({allLeads.filter(l => l.isFavorite).length})</span>
-                      <span className="sm:hidden">Favorites ({allLeads.filter(l => l.isFavorite).length})</span>
+                      <span className="text-base sm:text-lg">
+                        {favoritesFilter === 'favorites-only' ? '⭐' : favoritesFilter === 'exclude-favorites' ? '⛔' : '☆'}
+                      </span>
+                      <span className="hidden sm:inline">
+                        {favoritesFilter === 'all' && `All Leads (${allLeads.filter(l => l.isFavorite).length} ⭐)`}
+                        {favoritesFilter === 'favorites-only' && `Favorites Only (${allLeads.filter(l => l.isFavorite).length})`}
+                        {favoritesFilter === 'exclude-favorites' && `Exclude Favorites (${allLeads.filter(l => !l.isFavorite).length})`}
+                      </span>
+                      <span className="sm:hidden">
+                        {favoritesFilter === 'all' && 'All'}
+                        {favoritesFilter === 'favorites-only' && '⭐ Only'}
+                        {favoritesFilter === 'exclude-favorites' && '⛔ Exclude'}
+                      </span>
                     </button>
                   </div>
 
@@ -6989,8 +7009,11 @@ export default function App() {
                                 websiteFilter === 'all' ||
                                 (websiteFilter === 'has-website' && lead.website) ||
                                 (websiteFilter === 'no-website' && !lead.website);
-                              // Favorites filter
-                              const favoriteMatch = !favoritesOnly || lead.isFavorite;
+                              // Favorites filter (3 states: all, favorites-only, exclude-favorites)
+                              const favoriteMatch =
+                                favoritesFilter === 'all' ||
+                                (favoritesFilter === 'favorites-only' && lead.isFavorite) ||
+                                (favoritesFilter === 'exclude-favorites' && !lead.isFavorite);
                               return tagMatch && websiteMatch && favoriteMatch;
                             })
                             .map((lead, idx) => (
