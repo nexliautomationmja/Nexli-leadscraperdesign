@@ -91,6 +91,7 @@ interface Lead {
   generatedEmail?: { subject: string; body: string };
   emailSendStatus?: 'draft' | 'sent' | 'failed';
   isFavorite?: boolean;
+  createdAt?: string; // When lead was added to database
 }
 
 interface Campaign {
@@ -2618,7 +2619,7 @@ const ScraperView = ({
 
   // Filtering and sorting state
   const [scoreFilter, setScoreFilter] = useState<'all' | 'hot' | 'warm' | 'cold'>('all');
-  const [sortBy, setSortBy] = useState<'score' | 'name' | 'company'>('score');
+  const [sortBy, setSortBy] = useState<'score' | 'name' | 'company' | 'date'>('date'); // Default to newest first
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Decision Maker Filters (NEW)
@@ -2783,6 +2784,11 @@ const ScraperView = ({
         comparison = a.name.localeCompare(b.name);
       } else if (sortBy === 'company') {
         comparison = a.company.localeCompare(b.company);
+      } else if (sortBy === 'date') {
+        // Sort by createdAt if available, otherwise by ID (which contains timestamp)
+        const aDate = a.createdAt || a.id;
+        const bDate = b.createdAt || b.id;
+        comparison = aDate.localeCompare(bDate);
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
@@ -3590,6 +3596,7 @@ const ScraperView = ({
                     className="text-xs font-bold outline-none cursor-pointer"
                     style={{ background: 'transparent', color: 'var(--text-secondary)' }}
                   >
+                    <option value="date">Date Added</option>
                     <option value="score">Score</option>
                     <option value="name">Name</option>
                     <option value="company">Company</option>
@@ -5701,6 +5708,7 @@ export default function App() {
             isFavorite: dbLead.is_favorite || false,
             googleRating: dbLead.google_rating,
             googleReviewCount: dbLead.google_review_count,
+            createdAt: dbLead.created_at,
           }));
 
           setAllLeads(mappedLeads);
@@ -5870,59 +5878,130 @@ export default function App() {
       console.error('Error creating user row:', error);
     }
 
-    // Save leads to Supabase
-    try {
-      const { error } = await supabase
-        .from('leads')
-        .insert(
-          newLeads.map((lead) => ({
-            id: lead.id,
-            user_id: user.id,
-            name: lead.name,
-            email: lead.email,
-            company: lead.company,
-            role: lead.role,
-            linkedin: lead.linkedin || null,
-            phone: lead.phone || null,
-            city: lead.city || null,
-            state: lead.state || null,
-            country: lead.country || null,
-            location: lead.location || null,
-            website: lead.website || null,
-            org_website: lead.orgWebsite || null,
-            org_size: lead.orgSize || null,
-            org_industry: lead.orgIndustry || null,
-            score: lead.score,
-            status: lead.status || 'new',
-            tags: lead.tags || [],
-          }))
-        );
+    // DUPLICATE DETECTION: Check for existing leads by email
+    const existingEmails = new Set(allLeads.map(l => l.email.toLowerCase()));
+    const uniqueLeads = newLeads.filter(lead => !existingEmails.has(lead.email.toLowerCase()));
+    const duplicateCount = newLeads.length - uniqueLeads.length;
 
-      if (error) {
-        console.error('Supabase error details:', error);
-        console.error('Error message:', error.message);
-        console.error('Error code:', error.code);
-        console.error('Error hint:', error.hint);
-        console.error('Error details:', error.details);
-        throw error;
-      }
-    } catch (error: any) {
-      console.error('Error saving leads:', error);
-      console.error('Full error object:', JSON.stringify(error, null, 2));
-      addNotification('error', 'Sync Failed', error.message || 'Could not save leads to database');
-      return;
+    if (duplicateCount > 0) {
+      console.log(`Skipped ${duplicateCount} duplicate leads`);
     }
 
-    setAllLeads((prev) => [...newLeads, ...prev]);
+    // Only save unique leads to Supabase
+    if (uniqueLeads.length > 0) {
+      try {
+        const { error } = await supabase
+          .from('leads')
+          .insert(
+            uniqueLeads.map((lead) => ({
+              id: lead.id,
+              user_id: user.id,
+              name: lead.name,
+              email: lead.email,
+              company: lead.company,
+              role: lead.role,
+              linkedin: lead.linkedin || null,
+              phone: lead.phone || null,
+              city: lead.city || null,
+              state: lead.state || null,
+              country: lead.country || null,
+              location: lead.location || null,
+              website: lead.website || null,
+              org_website: lead.orgWebsite || null,
+              org_size: lead.orgSize || null,
+              org_industry: lead.orgIndustry || null,
+              score: lead.score,
+              status: lead.status || 'new',
+              tags: lead.tags || [],
+            }))
+          );
 
-    // Add notification for new leads
-    if (newLeads.length > 0) {
+        if (error) {
+          console.error('Supabase error details:', error);
+          console.error('Error message:', error.message);
+          console.error('Error code:', error.code);
+          console.error('Error hint:', error.hint);
+          console.error('Error details:', error.details);
+          throw error;
+        }
+      } catch (error: any) {
+        console.error('Error saving leads:', error);
+        console.error('Full error object:', JSON.stringify(error, null, 2));
+        addNotification('error', 'Sync Failed', error.message || 'Could not save leads to database');
+        return;
+      }
+
+      setAllLeads((prev) => [...uniqueLeads, ...prev]);
+    }
+
+    // Add notification with duplicate info
+    if (uniqueLeads.length > 0 || duplicateCount > 0) {
+      const message = duplicateCount > 0
+        ? `Added ${uniqueLeads.length} new lead${uniqueLeads.length !== 1 ? 's' : ''}, skipped ${duplicateCount} duplicate${duplicateCount !== 1 ? 's' : ''}`
+        : `Successfully scraped ${uniqueLeads.length} new lead${uniqueLeads.length !== 1 ? 's' : ''} and saved to your account`;
+
       addNotification(
         'success',
-        'New Leads Found!',
-        `Successfully scraped ${newLeads.length} new lead${newLeads.length > 1 ? 's' : ''} and saved to your account`,
+        uniqueLeads.length > 0 ? 'New Leads Found!' : 'Duplicates Skipped',
+        message,
         'lead'
       );
+    }
+  };
+
+  // Remove duplicate leads from database (keep most recent)
+  const handleRemoveDuplicates = async () => {
+    if (!user) return;
+    if (!confirm('This will remove duplicate leads (same email), keeping only the most recent copy. Continue?')) return;
+
+    try {
+      // Group leads by email (case-insensitive)
+      const emailGroups = new Map<string, Lead[]>();
+      allLeads.forEach(lead => {
+        const email = lead.email.toLowerCase();
+        if (!emailGroups.has(email)) {
+          emailGroups.set(email, []);
+        }
+        emailGroups.get(email)!.push(lead);
+      });
+
+      // Find duplicates (emails with more than one lead)
+      const duplicatesToDelete: string[] = [];
+      emailGroups.forEach((leads, email) => {
+        if (leads.length > 1) {
+          // Sort by ID (newer IDs are larger) and keep the first (newest), delete the rest
+          const sorted = leads.sort((a, b) => b.id.localeCompare(a.id));
+          const toDelete = sorted.slice(1); // All except the first (newest)
+          toDelete.forEach(lead => duplicatesToDelete.push(lead.id));
+        }
+      });
+
+      if (duplicatesToDelete.length === 0) {
+        addNotification('info', 'No Duplicates', 'No duplicate leads found in your database', 'lead');
+        return;
+      }
+
+      // Delete from Supabase
+      const { error } = await supabase
+        .from('leads')
+        .delete()
+        .in('id', duplicatesToDelete)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setAllLeads(prev => prev.filter(lead => !duplicatesToDelete.includes(lead.id)));
+
+      addNotification(
+        'success',
+        'Duplicates Removed',
+        `Successfully removed ${duplicatesToDelete.length} duplicate lead${duplicatesToDelete.length !== 1 ? 's' : ''}`,
+        'lead'
+      );
+    } catch (error: any) {
+      console.error('Error removing duplicates:', error);
+      addNotification('error', 'Cleanup Failed', error.message || 'Could not remove duplicates');
     }
   };
 
@@ -6556,6 +6635,20 @@ export default function App() {
                         <Download className="w-4 h-4" />
                         <span className="hidden sm:inline">Export All</span>
                         <span className="sm:hidden">Export</span>
+                      </button>
+                      <button
+                        onClick={handleRemoveDuplicates}
+                        className="px-3 sm:px-6 py-2 sm:py-2.5 rounded-full font-bold flex items-center gap-2 shadow-lg text-xs sm:text-sm border-2"
+                        style={{
+                          borderColor: '#EF4444',
+                          color: '#EF4444',
+                          background: 'rgba(239, 68, 68, 0.1)',
+                        }}
+                        title="Remove duplicate leads (same email)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span className="hidden sm:inline">Remove Duplicates</span>
+                        <span className="sm:hidden">Duplicates</span>
                       </button>
                     </div>
                   </header>
