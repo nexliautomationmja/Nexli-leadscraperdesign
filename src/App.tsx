@@ -5358,6 +5358,12 @@ export default function App() {
   const [isEnrichingRatings, setIsEnrichingRatings] = useState(false);
   const [ratingEnrichmentProgress, setRatingEnrichmentProgress] = useState({ current: 0, total: 0 });
 
+  // Bulk email generation state
+  const [isBulkGenerating, setIsBulkGenerating] = useState(false);
+  const [bulkGenerationProgress, setBulkGenerationProgress] = useState({ current: 0, total: 0 });
+  const [showBulkScheduleModal, setShowBulkScheduleModal] = useState(false);
+  const [bulkScheduleDateTime, setBulkScheduleDateTime] = useState('');
+
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>(() => {
     const stored = localStorage.getItem('nexli-email-templates');
     return stored ? JSON.parse(stored) : [
@@ -6320,6 +6326,109 @@ export default function App() {
     }
   };
 
+  // Bulk email generation with sender + email type rotation
+  const handleBulkGenerateEmails = async (scheduleFor?: string) => {
+    const leadsToGenerate = allLeads.filter((l) => selectedLeads.has(l.id));
+    if (leadsToGenerate.length === 0) return;
+
+    setIsBulkGenerating(true);
+    setBulkGenerationProgress({ current: 0, total: leadsToGenerate.length });
+
+    const emailTypes = ['ai_disruption', 'cost_savings', 'time_efficiency'];
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < leadsToGenerate.length; i++) {
+      const lead = leadsToGenerate[i];
+
+      try {
+        // Get next sender via rotation
+        const sender = getNextSender(senderRotationIndex + i);
+
+        // Randomize email type
+        const randomEmailType = emailTypes[Math.floor(Math.random() * emailTypes.length)];
+
+        // Generate email
+        const response = await fetch('/api/generate-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lead: {
+              name: lead.name,
+              company: lead.company,
+              role: lead.role,
+              linkedin: lead.linkedin,
+              location: lead.location || `${lead.city || ''} ${lead.state || ''}`.trim(),
+            },
+            sender: {
+              name: sender.name,
+              email: sender.email,
+              role: sender.role,
+              personality: sender.personality,
+            },
+            emailType: randomEmailType,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to generate email: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        // If scheduling, add to scheduled emails
+        if (scheduleFor) {
+          const newScheduledEmail: ScheduledEmail = {
+            id: `scheduled-${Date.now()}-${Math.random()}`,
+            lead,
+            subject: data.subject,
+            body: data.body,
+            scheduledFor: scheduleFor,
+            senderName: sender.name,
+            senderEmail: sender.email,
+            createdAt: new Date().toISOString(),
+          };
+          setScheduledEmails(prev => [...prev, newScheduledEmail]);
+        }
+
+        successCount++;
+      } catch (error: any) {
+        console.error(`Failed to generate email for ${lead.name}:`, error);
+        failCount++;
+      }
+
+      setBulkGenerationProgress({ current: i + 1, total: leadsToGenerate.length });
+
+      // Small delay to avoid overwhelming the API
+      if (i < leadsToGenerate.length - 1) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    setIsBulkGenerating(false);
+    setBulkGenerationProgress({ current: 0, total: 0 });
+    setSelectedLeads(new Set());
+
+    // Update sender rotation index
+    setSenderRotationIndex((senderRotationIndex + leadsToGenerate.length) % SENDER_PERSONAS.length);
+
+    if (scheduleFor) {
+      addNotification(
+        'success',
+        'Emails Scheduled!',
+        `Generated and scheduled ${successCount} emails for ${new Date(scheduleFor).toLocaleString()}${failCount > 0 ? ` (${failCount} failed)` : ''}`,
+        'email'
+      );
+    } else {
+      addNotification(
+        'success',
+        'Emails Generated!',
+        `Generated ${successCount} emails${failCount > 0 ? ` (${failCount} failed)` : ''}`,
+        'email'
+      );
+    }
+  };
+
   const handleCSVUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -6832,6 +6941,19 @@ export default function App() {
                           <span>Export</span>
                         </button>
                         <button
+                          onClick={() => setShowBulkScheduleModal(true)}
+                          disabled={isBulkGenerating}
+                          className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-bold flex items-center gap-2 transition-all text-xs sm:text-sm nexli-btn-gradient disabled:opacity-50"
+                        >
+                          <Mail className="w-3 sm:w-4 h-3 sm:h-4" />
+                          <span className="hidden sm:inline">
+                            {isBulkGenerating ? `Generating ${bulkGenerationProgress.current}/${bulkGenerationProgress.total}...` : 'Generate Emails'}
+                          </span>
+                          <span className="sm:hidden">
+                            {isBulkGenerating ? `${bulkGenerationProgress.current}/${bulkGenerationProgress.total}` : 'Emails'}
+                          </span>
+                        </button>
+                        <button
                           onClick={handleBulkDelete}
                           className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-bold flex items-center gap-2 transition-all text-xs sm:text-sm"
                           style={{
@@ -7295,6 +7417,110 @@ export default function App() {
                   addNotification={addNotification}
                 />
               )}
+
+              {/* Bulk Email Schedule Modal */}
+              {showBulkScheduleModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="glass-card p-6 max-w-lg w-full">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-2xl font-bold flex items-center gap-2">
+                        <Mail className="w-6 h-6 text-blue-500" />
+                        Bulk Generate Emails
+                      </h2>
+                      <button
+                        onClick={() => setShowBulkScheduleModal(false)}
+                        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-4">
+                      {/* Summary */}
+                      <div className="p-4 rounded-lg" style={{ background: 'var(--bg-elevated)' }}>
+                        <p className="text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
+                          Generating emails for {selectedLeads.size} lead{selectedLeads.size > 1 ? 's' : ''}
+                        </p>
+                        <ul className="text-xs space-y-1" style={{ color: 'var(--text-muted)' }}>
+                          <li>✨ Auto-rotates through Marcel, Justine, Bernice, and Jian</li>
+                          <li>🎲 Randomizes email types (AI, Cost Savings, Time Efficiency)</li>
+                          <li>📧 Personalized for each lead</li>
+                        </ul>
+                      </div>
+
+                      {/* Schedule Option */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2">
+                          Schedule for later (optional)
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={bulkScheduleDateTime}
+                          onChange={(e) => setBulkScheduleDateTime(e.target.value)}
+                          min={new Date().toISOString().slice(0, 16)}
+                          className="w-full px-4 py-3 rounded-lg border-2 transition-all"
+                          style={{
+                            background: 'var(--bg-elevated)',
+                            borderColor: bulkScheduleDateTime ? '#F59E0B' : 'var(--border-color)',
+                            color: 'var(--text-primary)',
+                          }}
+                        />
+                        {bulkScheduleDateTime && (
+                          <p className="text-xs mt-2 flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                            <Clock className="w-3 h-3 text-amber-500" />
+                            All emails will be scheduled for {new Date(bulkScheduleDateTime).toLocaleString('en-US', {
+                              weekday: 'short',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true
+                            })}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-3 pt-4">
+                        <button
+                          onClick={() => {
+                            setShowBulkScheduleModal(false);
+                            setBulkScheduleDateTime('');
+                          }}
+                          className="flex-1 px-4 py-3 rounded-lg font-medium border-2 transition-all"
+                          style={{
+                            borderColor: 'var(--border-color)',
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setShowBulkScheduleModal(false);
+                            await handleBulkGenerateEmails(bulkScheduleDateTime || undefined);
+                            setBulkScheduleDateTime('');
+                          }}
+                          className="flex-1 px-4 py-3 rounded-lg font-medium nexli-btn-gradient flex items-center justify-center gap-2"
+                        >
+                          {bulkScheduleDateTime ? (
+                            <>
+                              <Clock className="w-4 h-4" />
+                              <span>Schedule All</span>
+                            </>
+                          ) : (
+                            <>
+                              <Mail className="w-4 h-4" />
+                              <span>Generate Now</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'settings' && (
                 <div className="space-y-8">
                   <header>
