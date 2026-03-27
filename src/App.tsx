@@ -6408,14 +6408,19 @@ export default function App() {
 
         const data = await response.json();
 
-        // If scheduling, add to scheduled emails
+        // If scheduling, add to scheduled emails with staggered send times
         if (scheduleFor) {
+          // Calculate staggered send time (2-3 minute intervals to avoid spam filters)
+          const baseTime = new Date(scheduleFor);
+          const minutesDelay = 2 + Math.random(); // Random 2-3 minutes per email
+          const staggeredTime = new Date(baseTime.getTime() + (i * minutesDelay * 60 * 1000));
+
           const newScheduledEmail: ScheduledEmail = {
             id: `scheduled-${Date.now()}-${Math.random()}`,
             lead,
             subject: data.subject,
             body: data.body,
-            scheduledFor: scheduleFor,
+            scheduledFor: staggeredTime.toISOString(),
             senderName: sender.name,
             senderEmail: sender.email,
             createdAt: new Date().toISOString(),
@@ -6445,10 +6450,11 @@ export default function App() {
     setSenderRotationIndex((senderRotationIndex + leadsToGenerate.length) % SENDER_PERSONAS.length);
 
     if (scheduleFor) {
+      const estimatedEndTime = new Date(new Date(scheduleFor).getTime() + (successCount * 2.5 * 60 * 1000));
       addNotification(
         'success',
         'Emails Scheduled!',
-        `Generated and scheduled ${successCount} emails for ${new Date(scheduleFor).toLocaleString()}${failCount > 0 ? ` (${failCount} failed)` : ''}`,
+        `Generated and scheduled ${successCount} emails starting ${new Date(scheduleFor).toLocaleString()} (spread over 2-3 min intervals)${failCount > 0 ? ` • ${failCount} failed` : ''}`,
         'email'
       );
     } else {
@@ -7464,6 +7470,7 @@ export default function App() {
                           <li>✨ Auto-rotates through Marcel, Justine, Bernice, and Jian</li>
                           <li>🎲 Randomizes email types (AI, Cost Savings, Time Efficiency)</li>
                           <li>📧 Personalized for each lead</li>
+                          <li>⏰ Spreads sends over 2-3 min intervals (avoids spam filters)</li>
                         </ul>
                       </div>
 
@@ -7487,14 +7494,14 @@ export default function App() {
                         {bulkScheduleDateTime && (
                           <p className="text-xs mt-2 flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
                             <Clock className="w-3 h-3 text-amber-500" />
-                            All emails will be scheduled for {new Date(bulkScheduleDateTime).toLocaleString('en-US', {
+                            Emails will start sending at {new Date(bulkScheduleDateTime).toLocaleString('en-US', {
                               weekday: 'short',
                               month: 'short',
                               day: 'numeric',
                               hour: 'numeric',
                               minute: '2-digit',
                               hour12: true
-                            })}
+                            })}, spread over 2-3 minute intervals
                           </p>
                         )}
                       </div>
