@@ -5341,10 +5341,8 @@ export default function App() {
   const [isSendingEmailForLead, setIsSendingEmailForLead] = useState(false);
 
   // Scheduled emails state
-  const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>(() => {
-    const stored = localStorage.getItem('nexli-scheduled-emails');
-    return stored ? JSON.parse(stored) : [];
-  });
+  // Scheduled emails are now stored in Supabase (loaded on auth)
+  const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
 
   // Sender rotation index for A/B/C/D testing
   const [senderRotationIndex, setSenderRotationIndex] = useState(() => {
@@ -5432,10 +5430,7 @@ export default function App() {
     localStorage.setItem('nexli-notifications', JSON.stringify(notifications));
   }, [notifications]);
 
-  // Persist scheduled emails to localStorage
-  useEffect(() => {
-    localStorage.setItem('nexli-scheduled-emails', JSON.stringify(scheduledEmails));
-  }, [scheduledEmails]);
+  // Scheduled emails are persisted to Supabase (no localStorage needed)
 
   // Persist email templates to localStorage
   useEffect(() => {
@@ -5452,73 +5447,71 @@ export default function App() {
     localStorage.setItem('nexli-sender-rotation-index', String(senderRotationIndex));
   }, [senderRotationIndex]);
 
-  // Email Scheduler - Check every minute for scheduled emails to send
+  // Server-Side Email Scheduler - Calls API endpoint to send scheduled emails
   useEffect(() => {
-    // Function to check and send scheduled emails
-    const checkAndSendEmails = () => {
-      const now = new Date();
+    // Function to trigger server-side email sending
+    const checkAndSendEmails = async () => {
+      try {
+        console.log(`📧 Triggering server-side email check at ${new Date().toLocaleTimeString()}`);
 
-      if (scheduledEmails.length > 0) {
-        console.log(`📧 Scheduler checking ${scheduledEmails.length} scheduled emails at ${now.toLocaleTimeString()}`);
-      }
+        // Call the server endpoint to check and send overdue emails
+        const response = await fetch('/api/send-scheduled-emails', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
 
-      scheduledEmails.forEach(async (scheduledEmail) => {
-        const scheduledTime = new Date(scheduledEmail.scheduledFor);
-        const timeUntilSend = scheduledTime.getTime() - now.getTime();
-        const minutesUntil = Math.round(timeUntilSend / 60000);
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`✅ Server response:`, result);
 
-        console.log(`  → ${scheduledEmail.lead.name}: ${minutesUntil > 0 ? `${minutesUntil} min until send` : 'SENDING NOW'} (scheduled for ${scheduledTime.toLocaleTimeString()})`);
+          if (result.sent > 0) {
+            addNotification(
+              'success',
+              'Scheduled Emails Sent',
+              `${result.sent} email${result.sent > 1 ? 's' : ''} sent successfully${result.failed > 0 ? `, ${result.failed} failed` : ''}`,
+              'email'
+            );
 
-        // If scheduled time has passed, send the email
-        if (now >= scheduledTime) {
-          console.log(`  ✅ Sending email to ${scheduledEmail.lead.name}`);
-          try {
-            // Send email via Instantly.ai with rotated sender
-            const response = await fetch('/api/send-email', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                to: scheduledEmail.lead.email,
-                subject: scheduledEmail.subject,
-                body: scheduledEmail.body,
-                leadName: scheduledEmail.lead.name,
-                fromEmail: scheduledEmail.senderEmail,
-                fromName: scheduledEmail.senderName,
-              }),
-            });
+            // Reload scheduled emails from Supabase
+            if (user) {
+              const { data } = await supabase
+                .from('scheduled_emails')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('status', 'pending')
+                .order('scheduled_for', { ascending: true });
 
-            if (response.ok) {
-              console.log(`  ✅ Successfully sent email to ${scheduledEmail.lead.name}`);
-
-              // Remove from scheduled emails
-              setScheduledEmails(prev => prev.filter(e => e.id !== scheduledEmail.id));
-
-              // Add to email logs with sender info for A/B/C/D testing
-              const newLog: EmailLog = {
-                id: `log-${Date.now()}-${Math.random()}`,
-                campaignId: 'scheduled',
-                leadId: scheduledEmail.lead.id,
-                leadName: scheduledEmail.lead.name,
-                leadEmail: scheduledEmail.lead.email,
-                sentAt: new Date().toISOString(),
-                status: 'sent',
-                subject: scheduledEmail.subject,
-                body: scheduledEmail.body,
-                senderName: scheduledEmail.senderName,
-                senderEmail: scheduledEmail.senderEmail,
-              };
-              setEmailLogs(prev => [newLog, ...prev]);
-
-              // Show notification
-              addNotification('success', 'Scheduled Email Sent', `Email sent to ${scheduledEmail.lead.name}`, 'email');
-            } else {
-              console.error(`  ❌ Failed to send email to ${scheduledEmail.lead.name}: ${response.statusText}`);
+              if (data) {
+                // Convert to ScheduledEmail format
+                const emails: ScheduledEmail[] = data.map((email: any) => ({
+                  id: email.id,
+                  lead: {
+                    id: email.lead_id,
+                    name: email.lead_name,
+                    email: email.lead_email,
+                    company: email.lead_company || '',
+                    role: email.lead_role || '',
+                    linkedin: '',
+                    status: 'verified' as const,
+                    score: 0,
+                  },
+                  subject: email.subject,
+                  body: email.body,
+                  scheduledFor: email.scheduled_for,
+                  senderName: email.sender_name,
+                  senderEmail: email.sender_email,
+                  createdAt: email.created_at,
+                }));
+                setScheduledEmails(emails);
+              }
             }
-          } catch (error) {
-            console.error('Failed to send scheduled email:', error);
           }
+        } else {
+          console.error('Failed to trigger server-side sending:', await response.text());
         }
-      });
+      } catch (error) {
+        console.error('Error triggering server-side email sending:', error);
+      }
     };
 
     // Run immediately on mount to send any overdue emails
@@ -5528,7 +5521,7 @@ export default function App() {
     const interval = setInterval(checkAndSendEmails, 60000);
 
     return () => clearInterval(interval);
-  }, [scheduledEmails]);
+  }, [user]);
 
   // Authentication check and data loading
   useEffect(() => {
@@ -5644,6 +5637,38 @@ export default function App() {
               status: log.status as any,
               subject: log.subject,
               body: log.body,
+              senderName: log.sender_name,
+              senderEmail: log.sender_email,
+            })));
+          }
+
+          // Load scheduled emails from database
+          const { data: scheduledData } = await supabase
+            .from('scheduled_emails')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .eq('status', 'pending')
+            .order('scheduled_for', { ascending: true });
+
+          if (scheduledData) {
+            setScheduledEmails(scheduledData.map((email: any) => ({
+              id: email.id,
+              lead: {
+                id: email.lead_id,
+                name: email.lead_name,
+                email: email.lead_email,
+                company: email.lead_company || '',
+                role: email.lead_role || '',
+                linkedin: '',
+                status: 'verified' as const,
+                score: 0,
+              },
+              subject: email.subject,
+              body: email.body,
+              scheduledFor: email.scheduled_for,
+              senderName: email.sender_name,
+              senderEmail: email.sender_email,
+              createdAt: email.created_at,
             })));
           }
         }
@@ -6438,7 +6463,7 @@ export default function App() {
           const staggeredTime = new Date(baseTime.getTime() + (i * minutesDelay * 60 * 1000));
 
           const newScheduledEmail: ScheduledEmail = {
-            id: `scheduled-${Date.now()}-${Math.random()}`,
+            id: crypto.randomUUID(),
             lead,
             subject: data.subject,
             body: data.body,
@@ -6447,6 +6472,26 @@ export default function App() {
             senderEmail: sender.email,
             createdAt: new Date().toISOString(),
           };
+
+          // Save to Supabase for server-side sending
+          if (user) {
+            await supabase.from('scheduled_emails').insert({
+              id: newScheduledEmail.id,
+              user_id: user.id,
+              lead_id: lead.id,
+              lead_name: lead.name,
+              lead_email: lead.email,
+              lead_company: lead.company,
+              lead_role: lead.role,
+              subject: newScheduledEmail.subject,
+              body: newScheduledEmail.body,
+              scheduled_for: newScheduledEmail.scheduledFor,
+              sender_name: newScheduledEmail.senderName,
+              sender_email: newScheduledEmail.senderEmail,
+              status: 'pending',
+            });
+          }
+
           setScheduledEmails(prev => [...prev, newScheduledEmail]);
         }
 
