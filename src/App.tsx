@@ -6469,7 +6469,14 @@ export default function App() {
   };
 
   const handleAddTestLeads = async () => {
-    if (!user) return;
+    console.log('handleAddTestLeads called');
+    console.log('User:', user);
+
+    if (!user) {
+      console.error('No user logged in');
+      addNotification('error', 'Not Logged In', 'Please log in to add test leads');
+      return;
+    }
 
     const now = new Date().toISOString();
     const testLeads: Lead[] = [
@@ -6499,9 +6506,12 @@ export default function App() {
       },
     ];
 
+    console.log('Test leads to add:', testLeads);
+
     try {
+      console.log('Inserting to Supabase...');
       // Save to Supabase
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('leads')
         .insert(
           testLeads.map((lead) => ({
@@ -6517,12 +6527,19 @@ export default function App() {
             tags: lead.tags || [],
             created_at: lead.createdAt,
           }))
-        );
+        )
+        .select();
+
+      console.log('Supabase response:', { data, error });
 
       if (error) throw error;
 
+      console.log('Successfully inserted to Supabase');
+
       // Add to local state
       setAllLeads((prev) => [...testLeads, ...prev]);
+
+      console.log('Added to local state');
 
       addNotification(
         'success',
@@ -6532,7 +6549,7 @@ export default function App() {
       );
     } catch (error: any) {
       console.error('Error adding test leads:', error);
-      addNotification('error', 'Failed', 'Could not add test leads');
+      addNotification('error', 'Failed', `Could not add test leads: ${error.message}`);
     }
   };
 
