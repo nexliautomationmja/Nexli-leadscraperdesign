@@ -187,6 +187,7 @@ interface FollowUpSequence {
 
 // --- Constants ---
 const LEAD_TAGS = [
+  { id: 'test', label: 'Test', color: '#3B82F6', bg: 'rgba(59, 130, 246, 0.12)' },
   { id: 'hot', label: 'Hot', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.12)' },
   { id: 'warm', label: 'Warm', color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.12)' },
   { id: 'cold', label: 'Cold', color: '#6B7280', bg: 'rgba(107, 114, 128, 0.12)' },
@@ -6467,6 +6468,70 @@ export default function App() {
     }
   };
 
+  const handleAddTestLeads = async () => {
+    if (!user) return;
+
+    const testLeads: Lead[] = [
+      {
+        id: `test-lead-${Date.now()}-1`,
+        name: 'Gravy Burner',
+        email: 'mallen3211@gmail.com',
+        company: 'Test Company',
+        role: 'Owner',
+        linkedin: '',
+        status: 'verified',
+        score: 75,
+        tags: ['test'],
+      },
+      {
+        id: `test-lead-${Date.now()}-2`,
+        name: 'Hammy Banks',
+        email: 'allenmarcel34@gmail.com',
+        company: 'Test Company',
+        role: 'President',
+        linkedin: '',
+        status: 'verified',
+        score: 80,
+        tags: ['test'],
+      },
+    ];
+
+    try {
+      // Save to Supabase
+      const { error } = await supabase
+        .from('leads')
+        .insert(
+          testLeads.map((lead) => ({
+            id: lead.id,
+            user_id: user.id,
+            name: lead.name,
+            email: lead.email,
+            company: lead.company,
+            role: lead.role,
+            linkedin: lead.linkedin || null,
+            score: lead.score,
+            status: lead.status,
+            tags: lead.tags || [],
+          }))
+        );
+
+      if (error) throw error;
+
+      // Add to local state
+      setAllLeads((prev) => [...testLeads, ...prev]);
+
+      addNotification(
+        'success',
+        'Test Leads Added!',
+        '2 test leads added with "test" tag. Filter by "test" tag to see them.',
+        'lead'
+      );
+    } catch (error: any) {
+      console.error('Error adding test leads:', error);
+      addNotification('error', 'Failed', 'Could not add test leads');
+    }
+  };
+
   const handleCSVUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -6796,6 +6861,20 @@ export default function App() {
                         <Trash2 className="w-4 h-4" />
                         <span className="hidden sm:inline">Remove Duplicates</span>
                         <span className="sm:hidden">Duplicates</span>
+                      </button>
+                      <button
+                        onClick={handleAddTestLeads}
+                        className="px-3 sm:px-6 py-2 sm:py-2.5 rounded-full font-bold flex items-center gap-2 shadow-lg text-xs sm:text-sm border-2"
+                        style={{
+                          borderColor: '#3B82F6',
+                          color: '#3B82F6',
+                          background: 'rgba(59, 130, 246, 0.1)',
+                        }}
+                        title="Add 2 test leads with 'test' tag"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span className="hidden sm:inline">Add Test Leads</span>
+                        <span className="sm:hidden">Test Leads</span>
                       </button>
                     </div>
                   </header>
