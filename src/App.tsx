@@ -5055,9 +5055,6 @@ function CampaignsView({
                         emails_sent: 0,
                         opens: 0,
                         replies: 0,
-                        follow_up_sequence: newCampaign.followUpSequence || null,
-                        ab_test: newCampaign.abTest || null,
-                        scheduled_send: newCampaign.scheduledSend || null,
                       });
 
                       if (error) {

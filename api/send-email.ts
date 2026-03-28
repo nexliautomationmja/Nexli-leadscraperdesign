@@ -140,18 +140,19 @@ async function handleScheduledEmails(res: VercelResponse) {
           })
           .eq('id', email.id);
 
-        // Log the sent email
-        await supabase.from('email_logs').insert({
-          user_id: email.user_id,
-          campaign_id: 'scheduled',
-          lead_id: email.lead_id,
-          subject: email.subject,
-          body: email.body,
-          status: 'sent',
-          sent_at: new Date().toISOString(),
-          sender_name: senderName,
-          sender_email: senderEmail,
-        });
+        // Log the sent email (isolated so a log failure doesn't mark the email as failed)
+        try {
+          await supabase.from('email_logs').insert({
+            user_id: email.user_id,
+            lead_id: email.lead_id,
+            subject: email.subject,
+            body: email.body,
+            status: 'sent',
+            sent_at: new Date().toISOString(),
+          });
+        } catch (logError: any) {
+          console.error(`Email sent but failed to log for ${email.lead_name}:`, logError.message);
+        }
 
         console.log(`Sent to ${email.lead_name}`);
         sentCount++;
