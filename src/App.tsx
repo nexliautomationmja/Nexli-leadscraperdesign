@@ -1006,7 +1006,10 @@ const EmailGenerationModal = ({
                                   key={preset.label}
                                   onClick={() => {
                                     const time = preset.getTime();
-                                    setScheduledDateTime(time.toISOString().slice(0, 16));
+                                    // Format as local time for datetime-local input (YYYY-MM-DDTHH:MM)
+                                    const pad = (n: number) => String(n).padStart(2, '0');
+                                    const localStr = `${time.getFullYear()}-${pad(time.getMonth() + 1)}-${pad(time.getDate())}T${pad(time.getHours())}:${pad(time.getMinutes())}`;
+                                    setScheduledDateTime(localStr);
                                   }}
                                   className="px-3 py-2.5 rounded-lg text-xs font-bold transition-all hover:scale-105"
                                   style={{
@@ -2735,13 +2738,15 @@ const ScraperView = ({
     // Convert datetime-local string to proper ISO with timezone
     // datetime-local gives "2026-03-28T14:30" (no timezone) - treat as user's local time
     const scheduledISO = new Date(scheduledFor).toISOString();
+    console.log('[Schedule] Input:', scheduledFor, '→ ISO:', scheduledISO, '→ Local:', new Date(scheduledISO).toLocaleString());
 
     // Get next sender via auto-rotation
     const sender = getNextSender(senderRotationIndex);
     setSenderRotationIndex(sender.index);
 
+    const emailId = crypto.randomUUID();
     const newScheduledEmail: ScheduledEmail = {
-      id: crypto.randomUUID(),
+      id: emailId,
       lead: selectedLead,
       subject,
       body,
@@ -2753,8 +2758,9 @@ const ScraperView = ({
 
     // Persist to Supabase for server-side sending
     if (user) {
-      const { error } = await supabase.from('scheduled_emails').insert({
-        id: newScheduledEmail.id,
+      console.log('[Schedule] Saving to Supabase... user:', user.id, 'lead:', selectedLead.id, 'email:', emailId);
+      const { error, data } = await supabase.from('scheduled_emails').insert({
+        id: emailId,
         user_id: user.id,
         lead_id: selectedLead.id,
         lead_name: selectedLead.name,
@@ -2763,24 +2769,27 @@ const ScraperView = ({
         lead_role: selectedLead.role,
         subject: newScheduledEmail.subject,
         body: newScheduledEmail.body,
-        scheduled_for: newScheduledEmail.scheduledFor,
+        scheduled_for: scheduledISO,
         sender_name: newScheduledEmail.senderName,
         sender_email: newScheduledEmail.senderEmail,
         status: 'pending',
-      });
+      }).select();
 
       if (error) {
-        console.error('Failed to save scheduled email to database:', error);
-        addNotification('error', 'Scheduling Failed', `Could not save scheduled email: ${error.message}`, 'error');
+        console.error('[Schedule] SUPABASE INSERT FAILED:', error.code, error.message, error.details, error.hint);
+        addNotification('error', 'Scheduling Failed', `Database error: ${error.message}`, 'error');
         return;
       }
+      console.log('[Schedule] Saved to Supabase successfully:', data);
+    } else {
+      console.warn('[Schedule] No user logged in - email saved to local state only (will be lost on reload)');
     }
 
     setScheduledEmails(prev => [...prev, newScheduledEmail]);
     addNotification(
       'success',
-      'Email Scheduled',
-      `Email to ${selectedLead.name} scheduled for ${new Date(scheduledFor).toLocaleString()} (from ${sender.name})`,
+      'Email Scheduled' + (user ? ' & Saved' : ' (Local Only)'),
+      `Email to ${selectedLead.name} scheduled for ${new Date(scheduledISO).toLocaleString()} (from ${sender.name})` + (!user ? ' — Log in to persist' : ''),
       'email'
     );
 
@@ -4156,21 +4165,19 @@ function CampaignsView({
             <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
             {isRefreshing ? 'Refreshing...' : 'Refresh Metrics'}
           </button>
-          {scheduledEmails.length > 0 && (
-            <button
-              onClick={triggerSendScheduled}
-              disabled={isSendingScheduled}
-              className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md"
-              style={{
-                borderColor: '#F59E0B',
-                background: 'rgba(245, 158, 11, 0.1)',
-                color: '#F59E0B',
-              }}
-            >
-              <Zap className={cn('w-4 h-4', isSendingScheduled && 'animate-pulse')} />
-              {isSendingScheduled ? 'Checking...' : 'Check & Send'}
-            </button>
-          )}
+          <button
+            onClick={triggerSendScheduled}
+            disabled={isSendingScheduled}
+            className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md active:scale-95"
+            style={{
+              borderColor: '#F59E0B',
+              background: 'rgba(245, 158, 11, 0.1)',
+              color: '#F59E0B',
+            }}
+          >
+            <Zap className={cn('w-4 h-4', isSendingScheduled && 'animate-pulse')} />
+            {isSendingScheduled ? 'Checking...' : 'Check & Send'}
+          </button>
           <button
             onClick={() => setShowCreateModal(true)}
             className="nexli-btn-gradient px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center"
@@ -6548,13 +6555,15 @@ export default function App() {
 
     // Convert datetime-local string to proper ISO with timezone
     const scheduledISO = new Date(scheduledFor).toISOString();
+    console.log('[Schedule-Lead] Input:', scheduledFor, '→ ISO:', scheduledISO);
 
     // Get next sender via auto-rotation
     const sender = getNextSender(senderRotationIndex);
     setSenderRotationIndex(sender.index);
 
+    const emailId = crypto.randomUUID();
     const newScheduledEmail: ScheduledEmail = {
-      id: crypto.randomUUID(),
+      id: emailId,
       lead: selectedLeadForEmail,
       subject,
       body,
@@ -6566,8 +6575,9 @@ export default function App() {
 
     // Persist to Supabase for server-side sending
     if (user) {
-      const { error } = await supabase.from('scheduled_emails').insert({
-        id: newScheduledEmail.id,
+      console.log('[Schedule-Lead] Saving to Supabase... user:', user.id, 'lead:', selectedLeadForEmail.id);
+      const { error, data } = await supabase.from('scheduled_emails').insert({
+        id: emailId,
         user_id: user.id,
         lead_id: selectedLeadForEmail.id,
         lead_name: selectedLeadForEmail.name,
@@ -6576,24 +6586,27 @@ export default function App() {
         lead_role: selectedLeadForEmail.role,
         subject: newScheduledEmail.subject,
         body: newScheduledEmail.body,
-        scheduled_for: newScheduledEmail.scheduledFor,
+        scheduled_for: scheduledISO,
         sender_name: newScheduledEmail.senderName,
         sender_email: newScheduledEmail.senderEmail,
         status: 'pending',
-      });
+      }).select();
 
       if (error) {
-        console.error('Failed to save scheduled email to database:', error);
-        addNotification('error', 'Scheduling Failed', `Could not save scheduled email: ${error.message}`, 'error');
+        console.error('[Schedule-Lead] SUPABASE INSERT FAILED:', error.code, error.message, error.details, error.hint);
+        addNotification('error', 'Scheduling Failed', `Database error: ${error.message}`, 'error');
         return;
       }
+      console.log('[Schedule-Lead] Saved to Supabase successfully:', data);
+    } else {
+      console.warn('[Schedule-Lead] No user logged in - local only');
     }
 
     setScheduledEmails(prev => [...prev, newScheduledEmail]);
     addNotification(
       'success',
-      'Email Scheduled',
-      `Email to ${selectedLeadForEmail.name} scheduled for ${new Date(scheduledFor).toLocaleString()} (from ${sender.name})`,
+      'Email Scheduled' + (user ? ' & Saved' : ' (Local Only)'),
+      `Email to ${selectedLeadForEmail.name} scheduled for ${new Date(scheduledISO).toLocaleString()} (from ${sender.name})` + (!user ? ' — Log in to persist' : ''),
       'email'
     );
 
