@@ -4135,40 +4135,40 @@ function CampaignsView({
   const replyRate = totalMetrics.sent > 0 ? Math.round((totalMetrics.replied / totalMetrics.sent) * 100) : 0;
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="flex-1">
-          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
-            <Mail className="w-7 h-7 md:w-8 md:h-8 text-blue-500" />
-            Email Campaigns
-          </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            Manage bulk email outreach and track Justine's progress
-            {lastRefreshed && (
-              <span className="ml-2 text-xs">
-                • Last updated {lastRefreshed.toLocaleTimeString()}
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <h1 className="text-xl md:text-3xl font-bold flex items-center gap-2 md:gap-3">
+              <Mail className="w-6 h-6 md:w-8 md:h-8 text-blue-500" />
+              Email Campaigns
+            </h1>
+            <p className="text-xs md:text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+              Manage outreach and track progress
+              {lastRefreshed && (
+                <span className="ml-2 text-xs">
+                  • Updated {lastRefreshed.toLocaleTimeString()}
+                </span>
+              )}
+            </p>
+          </div>
           <button
-            onClick={refreshAllMetrics}
-            disabled={isRefreshing || campaigns.length === 0}
-            className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md"
-            style={{
-              borderColor: 'var(--border-color)',
-              background: 'var(--bg-surface)',
-            }}
+            onClick={() => setShowCreateModal(true)}
+            className="nexli-btn-gradient px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center flex-shrink-0"
           >
-            <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh Metrics'}
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">New Campaign</span>
+            <span className="sm:hidden">New</span>
           </button>
+        </div>
+
+        {/* Action buttons row - wraps on mobile */}
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={triggerSendScheduled}
             disabled={isSendingScheduled}
-            className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md active:scale-95"
+            className="flex-1 min-w-[140px] px-4 py-3 rounded-xl font-bold text-sm flex items-center gap-2 justify-center border-2 transition-all disabled:opacity-50 active:scale-95"
             style={{
               borderColor: '#F59E0B',
               background: 'rgba(245, 158, 11, 0.1)',
@@ -4179,11 +4179,16 @@ function CampaignsView({
             {isSendingScheduled ? 'Checking...' : 'Check & Send'}
           </button>
           <button
-            onClick={() => setShowCreateModal(true)}
-            className="nexli-btn-gradient px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center"
+            onClick={refreshAllMetrics}
+            disabled={isRefreshing || campaigns.length === 0}
+            className="flex-1 min-w-[140px] px-4 py-3 rounded-xl font-medium text-sm flex items-center gap-2 justify-center border-2 transition-all disabled:opacity-50 active:scale-95"
+            style={{
+              borderColor: 'var(--border-color)',
+              background: 'var(--bg-surface)',
+            }}
           >
-            <Plus className="w-4 h-4" />
-            New Campaign
+            <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Metrics'}
           </button>
         </div>
       </div>
@@ -4191,7 +4196,7 @@ function CampaignsView({
       {/* Send Scheduled Status Banner */}
       {sendScheduledResult && (
         <div
-          className="p-4 rounded-xl text-sm font-medium flex items-start gap-3"
+          className="p-3 md:p-4 rounded-xl text-xs md:text-sm font-medium flex items-start gap-3"
           style={{
             background: sendScheduledResult.includes('error') || sendScheduledResult.includes('Error') || sendScheduledResult.includes('failed')
               ? 'rgba(239, 68, 68, 0.1)'
@@ -4207,7 +4212,7 @@ function CampaignsView({
             }`,
           }}
         >
-          <div className="flex-1">{sendScheduledResult}</div>
+          <div className="flex-1 break-words">{sendScheduledResult}</div>
           <button
             onClick={() => setSendScheduledResult(null)}
             className="p-1 rounded-lg hover:bg-black/10 flex-shrink-0"
