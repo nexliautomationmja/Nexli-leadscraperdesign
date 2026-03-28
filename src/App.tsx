@@ -5010,6 +5010,9 @@ function CampaignsView({
 
                     const campaignId = crypto.randomUUID();
 
+                    // Resolve the selected email template
+                    const template = selectedTemplate ? emailTemplates.find(t => t.id === selectedTemplate) : null;
+
                     // Create campaign
                     const newCampaign: Campaign = {
                       id: campaignId,
@@ -5017,6 +5020,7 @@ function CampaignsView({
                       createdAt: new Date().toISOString(),
                       status: enableScheduled ? 'scheduled' : 'draft',
                       leadIds: selectedLeadsForCampaign,
+                      emailTemplate: template ? { subject: template.subject, body: template.body } : undefined,
                       senderName: 'Your Name',
                       senderEmail: 'you@example.com',
                       metrics: {
@@ -6028,6 +6032,55 @@ export default function App() {
                 .from('campaigns')
                 .update({ status: 'active', updated_at: new Date().toISOString() })
                 .eq('id', campaign.id);
+
+              // Create scheduled_emails for each lead in the campaign
+              if (campaign.leadIds && campaign.leadIds.length > 0 && campaign.emailTemplate) {
+                const leadsForCampaign = allLeads.filter(l => campaign.leadIds.includes(l.id));
+                let emailIndex = 0;
+
+                for (const lead of leadsForCampaign) {
+                  const sender = getNextSender(senderRotationIndex + emailIndex);
+                  const filledEmail = fillTemplate(
+                    { ...campaign.emailTemplate, id: '', name: '', variables: [], createdAt: '', usageCount: 0 },
+                    lead
+                  );
+
+                  const emailId = crypto.randomUUID();
+                  // Stagger emails by 2-3 minutes each to avoid spam filters
+                  const staggeredTime = new Date(now.getTime() + (emailIndex * (2 + Math.random()) * 60 * 1000));
+
+                  await supabase.from('scheduled_emails').insert({
+                    id: emailId,
+                    user_id: user.id,
+                    lead_id: lead.id,
+                    lead_name: lead.name,
+                    lead_email: lead.email,
+                    lead_company: lead.company,
+                    lead_role: lead.role,
+                    subject: filledEmail.subject,
+                    body: filledEmail.body,
+                    scheduled_for: staggeredTime.toISOString(),
+                    sender_name: sender.name,
+                    sender_email: sender.email,
+                    status: 'pending',
+                  });
+
+                  setScheduledEmails(prev => [...prev, {
+                    id: emailId,
+                    lead,
+                    subject: filledEmail.subject,
+                    body: filledEmail.body,
+                    scheduledFor: staggeredTime.toISOString(),
+                    senderName: sender.name,
+                    senderEmail: sender.email,
+                    createdAt: new Date().toISOString(),
+                  }]);
+
+                  emailIndex++;
+                }
+
+                setSenderRotationIndex(prev => (prev + emailIndex) % 4);
+              }
             }
 
             // Update campaign status to active in state
@@ -6042,7 +6095,7 @@ export default function App() {
             // Remove from scheduled campaigns
             setScheduledCampaigns((prev) => prev.filter((id) => id !== campaign.id));
 
-            // Trigger server-side email check to send any pending emails
+            // Trigger server-side email check to send the newly created emails
             try {
               await fetch('/api/send-email', {
                 method: 'POST',
@@ -6066,7 +6119,7 @@ export default function App() {
     }, 60000); // Check every minute
 
     return () => clearInterval(interval);
-  }, [campaigns, user]);
+  }, [campaigns, user, allLeads, senderRotationIndex]);
 
   // Follow-up scheduler - runs every minute (simplified version)
   useEffect(() => {

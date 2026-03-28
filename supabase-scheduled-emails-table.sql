@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS scheduled_emails (
   sender_name TEXT NOT NULL,
   sender_email TEXT NOT NULL,
   status TEXT DEFAULT 'pending', -- 'pending', 'sent', 'failed'
+  retry_count INTEGER DEFAULT 0,
   sent_at TIMESTAMPTZ,
   error_message TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
