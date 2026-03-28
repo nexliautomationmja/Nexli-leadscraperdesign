@@ -2732,6 +2732,10 @@ const ScraperView = ({
   const handleScheduleEmail = async (scheduledFor: string, subject: string, body: string) => {
     if (!selectedLead) return;
 
+    // Convert datetime-local string to proper ISO with timezone
+    // datetime-local gives "2026-03-28T14:30" (no timezone) - treat as user's local time
+    const scheduledISO = new Date(scheduledFor).toISOString();
+
     // Get next sender via auto-rotation
     const sender = getNextSender(senderRotationIndex);
     setSenderRotationIndex(sender.index);
@@ -2741,7 +2745,7 @@ const ScraperView = ({
       lead: selectedLead,
       subject,
       body,
-      scheduledFor,
+      scheduledFor: scheduledISO,
       senderName: sender.name,
       senderEmail: sender.email,
       createdAt: new Date().toISOString(),
@@ -3880,6 +3884,94 @@ function CampaignsView({
   const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [isSendingScheduled, setIsSendingScheduled] = useState(false);
+  const [sendScheduledResult, setSendScheduledResult] = useState<string | null>(null);
+
+  // Manual trigger to check and send scheduled emails
+  const triggerSendScheduled = async () => {
+    setIsSendingScheduled(true);
+    setSendScheduledResult(null);
+    try {
+      // First check what's in Supabase
+      if (user) {
+        const { data: pending, error: checkError } = await supabase
+          .from('scheduled_emails')
+          .select('id, lead_name, lead_email, scheduled_for, status')
+          .eq('user_id', user.id)
+          .eq('status', 'pending')
+          .order('scheduled_for', { ascending: true });
+
+        if (checkError) {
+          setSendScheduledResult(`DB error: ${checkError.message}`);
+          setIsSendingScheduled(false);
+          return;
+        }
+
+        if (!pending || pending.length === 0) {
+          setSendScheduledResult('No pending emails found in database. The scheduled email may not have been saved to Supabase.');
+          setIsSendingScheduled(false);
+          return;
+        }
+
+        const now = new Date();
+        const due = pending.filter(e => new Date(e.scheduled_for) <= now);
+        const future = pending.filter(e => new Date(e.scheduled_for) > now);
+
+        if (due.length === 0) {
+          const nextEmail = pending[0];
+          const timeUntil = Math.round((new Date(nextEmail.scheduled_for).getTime() - now.getTime()) / 60000);
+          setSendScheduledResult(
+            `${pending.length} pending email(s) in DB, but none are due yet. Next: "${nextEmail.lead_name}" in ${timeUntil} minutes (${new Date(nextEmail.scheduled_for).toLocaleString()})`
+          );
+          setIsSendingScheduled(false);
+          return;
+        }
+
+        // Try to trigger the server-side send
+        setSendScheduledResult(`Found ${due.length} due email(s). Triggering send...`);
+
+        const response = await fetch('/api/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ checkScheduled: true }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          setSendScheduledResult(`API error (${response.status}): ${errorText}`);
+        } else {
+          const result = await response.json();
+          setSendScheduledResult(
+            `Result: ${result.sent || 0} sent, ${result.failed || 0} failed. ${future.length} still pending for later.`
+          );
+
+          if (result.sent > 0) {
+            addNotification('success', 'Emails Sent', `${result.sent} email(s) sent successfully`, 'email');
+            // Reload scheduled emails
+            const { data: refreshed } = await supabase
+              .from('scheduled_emails')
+              .select('*')
+              .eq('user_id', user.id)
+              .eq('status', 'pending')
+              .order('scheduled_for', { ascending: true });
+            if (refreshed) {
+              setScheduledEmails(refreshed.map((email: any) => ({
+                id: email.id,
+                lead: { id: email.lead_id, name: email.lead_name, email: email.lead_email, company: email.lead_company || '', role: email.lead_role || '', linkedin: '', status: 'verified' as const, score: 0 },
+                subject: email.subject, body: email.body, scheduledFor: email.scheduled_for, senderName: email.sender_name, senderEmail: email.sender_email, createdAt: email.created_at,
+              })));
+            }
+          }
+        }
+      } else {
+        setSendScheduledResult('Not logged in. Cannot check scheduled emails.');
+      }
+    } catch (error: any) {
+      setSendScheduledResult(`Error: ${error.message}`);
+    } finally {
+      setIsSendingScheduled(false);
+    }
+  };
 
   // Scheduled emails management state
   const [selectedScheduledEmail, setSelectedScheduledEmail] = useState<ScheduledEmail | null>(null);
@@ -4064,6 +4156,21 @@ function CampaignsView({
             <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
             {isRefreshing ? 'Refreshing...' : 'Refresh Metrics'}
           </button>
+          {scheduledEmails.length > 0 && (
+            <button
+              onClick={triggerSendScheduled}
+              disabled={isSendingScheduled}
+              className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md"
+              style={{
+                borderColor: '#F59E0B',
+                background: 'rgba(245, 158, 11, 0.1)',
+                color: '#F59E0B',
+              }}
+            >
+              <Zap className={cn('w-4 h-4', isSendingScheduled && 'animate-pulse')} />
+              {isSendingScheduled ? 'Checking...' : 'Check & Send'}
+            </button>
+          )}
           <button
             onClick={() => setShowCreateModal(true)}
             className="nexli-btn-gradient px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center"
@@ -4073,6 +4180,35 @@ function CampaignsView({
           </button>
         </div>
       </div>
+
+      {/* Send Scheduled Status Banner */}
+      {sendScheduledResult && (
+        <div
+          className="p-4 rounded-xl text-sm font-medium flex items-start gap-3"
+          style={{
+            background: sendScheduledResult.includes('error') || sendScheduledResult.includes('Error') || sendScheduledResult.includes('failed')
+              ? 'rgba(239, 68, 68, 0.1)'
+              : sendScheduledResult.includes('sent')
+              ? 'rgba(16, 185, 129, 0.1)'
+              : 'rgba(245, 158, 11, 0.1)',
+            border: `1px solid ${
+              sendScheduledResult.includes('error') || sendScheduledResult.includes('Error') || sendScheduledResult.includes('failed')
+                ? 'rgba(239, 68, 68, 0.3)'
+                : sendScheduledResult.includes('sent')
+                ? 'rgba(16, 185, 129, 0.3)'
+                : 'rgba(245, 158, 11, 0.3)'
+            }`,
+          }}
+        >
+          <div className="flex-1">{sendScheduledResult}</div>
+          <button
+            onClick={() => setSendScheduledResult(null)}
+            className="p-1 rounded-lg hover:bg-black/10 flex-shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Overview Stats - Justine's Dashboard */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
@@ -5046,7 +5182,9 @@ function CampaignsView({
 
                     // Persist campaign to Supabase
                     if (user) {
-                      const { error } = await supabase.from('campaigns').insert({
+                      // Try full insert first, fall back to basic if columns don't exist
+                      let insertError;
+                      const { error: fullError } = await supabase.from('campaigns').insert({
                         id: campaignId,
                         user_id: user.id,
                         name: campaignName,
@@ -5055,7 +5193,26 @@ function CampaignsView({
                         emails_sent: 0,
                         opens: 0,
                         replies: 0,
+                        scheduled_send: newCampaign.scheduledSend || null,
                       });
+
+                      if (fullError?.message?.includes('column')) {
+                        // Fallback: insert without optional columns
+                        const { error: basicError } = await supabase.from('campaigns').insert({
+                          id: campaignId,
+                          user_id: user.id,
+                          name: campaignName,
+                          status: newCampaign.status,
+                          total_leads: selectedLeadsForCampaign.length,
+                          emails_sent: 0,
+                          opens: 0,
+                          replies: 0,
+                        });
+                        insertError = basicError;
+                      } else {
+                        insertError = fullError;
+                      }
+                      const error = insertError;
 
                       if (error) {
                         console.error('Failed to save campaign to database:', error);
@@ -6389,6 +6546,9 @@ export default function App() {
   const handleScheduleEmailForLead = async (scheduledFor: string, subject: string, body: string) => {
     if (!selectedLeadForEmail) return;
 
+    // Convert datetime-local string to proper ISO with timezone
+    const scheduledISO = new Date(scheduledFor).toISOString();
+
     // Get next sender via auto-rotation
     const sender = getNextSender(senderRotationIndex);
     setSenderRotationIndex(sender.index);
@@ -6398,7 +6558,7 @@ export default function App() {
       lead: selectedLeadForEmail,
       subject,
       body,
-      scheduledFor,
+      scheduledFor: scheduledISO,
       senderName: sender.name,
       senderEmail: sender.email,
       createdAt: new Date().toISOString(),
