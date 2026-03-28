@@ -2585,6 +2585,7 @@ const ScraperView = ({
   setSenderRotationIndex,
   setScheduledEmails,
   addNotification,
+  user,
 }: {
   onLeadsFound: (leads: Lead[]) => void;
   isDark: boolean;
@@ -2592,6 +2593,7 @@ const ScraperView = ({
   setSenderRotationIndex: (index: number) => void;
   setScheduledEmails: React.Dispatch<React.SetStateAction<ScheduledEmail[]>>;
   addNotification: (type: string, title: string, message: string, icon: string) => void;
+  user: User | null;
 }) => {
   const [query, setQuery] = useState('');
   const [isScraping, setIsScraping] = useState(false);
@@ -2727,7 +2729,7 @@ const ScraperView = ({
     }
   };
 
-  const handleScheduleEmail = (scheduledFor: string, subject: string, body: string) => {
+  const handleScheduleEmail = async (scheduledFor: string, subject: string, body: string) => {
     if (!selectedLead) return;
 
     // Get next sender via auto-rotation
@@ -2735,7 +2737,7 @@ const ScraperView = ({
     setSenderRotationIndex(sender.index);
 
     const newScheduledEmail: ScheduledEmail = {
-      id: `scheduled-${Date.now()}-${Math.random()}`,
+      id: crypto.randomUUID(),
       lead: selectedLead,
       subject,
       body,
@@ -2744,6 +2746,31 @@ const ScraperView = ({
       senderEmail: sender.email,
       createdAt: new Date().toISOString(),
     };
+
+    // Persist to Supabase for server-side sending
+    if (user) {
+      const { error } = await supabase.from('scheduled_emails').insert({
+        id: newScheduledEmail.id,
+        user_id: user.id,
+        lead_id: selectedLead.id,
+        lead_name: selectedLead.name,
+        lead_email: selectedLead.email,
+        lead_company: selectedLead.company,
+        lead_role: selectedLead.role,
+        subject: newScheduledEmail.subject,
+        body: newScheduledEmail.body,
+        scheduled_for: newScheduledEmail.scheduledFor,
+        sender_name: newScheduledEmail.senderName,
+        sender_email: newScheduledEmail.senderEmail,
+        status: 'pending',
+      });
+
+      if (error) {
+        console.error('Failed to save scheduled email to database:', error);
+        addNotification('error', 'Scheduling Failed', `Could not save scheduled email: ${error.message}`, 'error');
+        return;
+      }
+    }
 
     setScheduledEmails(prev => [...prev, newScheduledEmail]);
     addNotification(
@@ -3832,6 +3859,7 @@ function CampaignsView({
   scheduledEmails,
   setScheduledEmails,
   addNotification,
+  user,
 }: {
   isDark: boolean;
   campaigns: Campaign[];
@@ -3845,6 +3873,7 @@ function CampaignsView({
   scheduledEmails: ScheduledEmail[];
   setScheduledEmails: React.Dispatch<React.SetStateAction<ScheduledEmail[]>>;
   addNotification: (type: 'success' | 'info' | 'warning' | 'error', title: string, message: string, icon?: 'lead' | 'email' | 'campaign' | 'reply' | 'error') => void;
+  user: User | null;
 }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
@@ -3919,14 +3948,49 @@ function CampaignsView({
   };
 
   // Scheduled email management functions
-  const handleCancelScheduledEmail = (emailId: string) => {
+  const handleCancelScheduledEmail = async (emailId: string) => {
     if (confirm('Are you sure you want to cancel this scheduled email?')) {
+      // Remove from Supabase
+      if (user) {
+        const { error } = await supabase
+          .from('scheduled_emails')
+          .delete()
+          .eq('id', emailId)
+          .eq('user_id', user.id);
+
+        if (error) {
+          console.error('Failed to cancel scheduled email in database:', error);
+          addNotification('error', 'Cancel Failed', `Could not cancel email: ${error.message}`, 'error');
+          return;
+        }
+      }
+
       setScheduledEmails((prev) => prev.filter((e) => e.id !== emailId));
       addNotification('success', 'Email Cancelled', 'Scheduled email has been cancelled', 'email');
     }
   };
 
-  const handleEditScheduledEmail = (updatedEmail: ScheduledEmail) => {
+  const handleEditScheduledEmail = async (updatedEmail: ScheduledEmail) => {
+    // Update in Supabase
+    if (user) {
+      const { error } = await supabase
+        .from('scheduled_emails')
+        .update({
+          subject: updatedEmail.subject,
+          body: updatedEmail.body,
+          scheduled_for: updatedEmail.scheduledFor,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', updatedEmail.id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Failed to update scheduled email in database:', error);
+        addNotification('error', 'Update Failed', `Could not update email: ${error.message}`, 'error');
+        return;
+      }
+    }
+
     setScheduledEmails((prev) =>
       prev.map((e) => (e.id === updatedEmail.id ? updatedEmail : e))
     );
@@ -4083,7 +4147,82 @@ function CampaignsView({
             </h2>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Mobile Card Layout */}
+          <div className="md:hidden space-y-3">
+            {scheduledEmails
+              .sort((a, b) => new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime())
+              .map((email) => {
+                const timeInfo = getTimeUntilScheduled(email.scheduledFor);
+                const urgencyColors = {
+                  red: { bg: 'rgba(239, 68, 68, 0.15)', text: '#EF4444', border: '#EF4444' },
+                  yellow: { bg: 'rgba(245, 158, 11, 0.15)', text: '#F59E0B', border: '#F59E0B' },
+                  green: { bg: 'rgba(16, 185, 129, 0.15)', text: '#10B981', border: '#10B981' },
+                };
+                const colors = urgencyColors[timeInfo.urgency];
+
+                return (
+                  <div
+                    key={email.id}
+                    className="p-4 rounded-xl border transition-all"
+                    style={{ borderColor: 'var(--border-color)', background: 'var(--bg-surface)' }}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm truncate">{email.lead.name}</p>
+                        <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                          {email.lead.email}
+                        </p>
+                      </div>
+                      <span
+                        className="px-2.5 py-1 rounded-full text-xs font-bold ml-2 flex-shrink-0"
+                        style={{
+                          background: colors.bg,
+                          color: colors.text,
+                          border: `1px solid ${colors.border}`,
+                        }}
+                      >
+                        {timeInfo.text}
+                      </span>
+                    </div>
+                    <p className="text-sm font-medium truncate mb-2">{email.subject}</p>
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <span>{new Date(email.scheduledFor).toLocaleString('en-US', {
+                          month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+                        })}</span>
+                        <span className="mx-1.5">·</span>
+                        <span>{email.senderName}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => { setSelectedScheduledEmail(email); setShowPreviewScheduledModal(true); }}
+                          className="p-2 rounded-lg transition-all active:scale-95"
+                          style={{ background: 'var(--bg-elevated)' }}
+                        >
+                          <Eye className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                        </button>
+                        <button
+                          onClick={() => { setSelectedScheduledEmail(email); setShowEditScheduledModal(true); }}
+                          className="p-2 rounded-lg transition-all active:scale-95"
+                          style={{ background: 'var(--bg-elevated)' }}
+                        >
+                          <Edit2 className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                        </button>
+                        <button
+                          onClick={() => handleCancelScheduledEmail(email.id)}
+                          className="p-2 rounded-lg transition-all active:scale-95 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          {/* Desktop Table Layout */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b-2" style={{ borderColor: 'var(--border-color)' }}>
@@ -4536,18 +4675,18 @@ function CampaignsView({
 
               {/* Scheduled Sending (Feature 8) */}
               <div className="p-4 rounded-xl" style={{ background: 'var(--bg-elevated)' }}>
-                <label className="flex items-center gap-3 mb-3 cursor-pointer">
+                <label className="flex items-center gap-3 mb-3 cursor-pointer min-h-[44px]">
                   <input
                     type="checkbox"
                     checked={enableScheduled}
                     onChange={(e) => setEnableScheduled(e.target.checked)}
-                    className="w-4 h-4 rounded"
+                    className="w-5 h-5 rounded flex-shrink-0"
                     style={{ accentColor: 'var(--gradient-start)' }}
                   />
                   <div>
                     <span className="text-sm font-bold flex items-center gap-2">
                       <Clock className="w-4 h-4" />
-                      Schedule Send (Feature 8)
+                      Schedule Send
                     </span>
                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                       Send campaign at a specific date and time
@@ -4555,75 +4694,86 @@ function CampaignsView({
                   </div>
                 </label>
                 {enableScheduled && (
-                  <div className="space-y-4 mt-4 pl-7">
-                    {/* Quick Presets */}
+                  <div className="space-y-4 mt-4 pl-0 md:pl-7">
+                    {/* Quick Presets - larger touch targets for mobile */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
                         Quick Presets
                       </label>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="grid grid-cols-2 gap-2">
                         {[
                           { label: 'Tomorrow 9 AM', days: 1, hour: '9', minute: '00', period: 'AM' },
                           { label: 'Tomorrow 2 PM', days: 1, hour: '2', minute: '00', period: 'PM' },
                           { label: 'Next Week Mon', days: 7, hour: '10', minute: '00', period: 'AM' },
                           { label: 'In 3 Days 9 AM', days: 3, hour: '9', minute: '00', period: 'AM' },
-                        ].map((preset) => (
-                          <button
-                            key={preset.label}
-                            onClick={() => {
-                              const date = new Date();
-                              date.setDate(date.getDate() + preset.days);
-                              setScheduledDate(date.toISOString().split('T')[0]);
-                              setScheduledHour(preset.hour);
-                              setScheduledMinute(preset.minute);
-                              setScheduledPeriod(preset.period);
-                            }}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:scale-105"
-                            style={{
-                              background: 'var(--bg-input)',
-                              color: 'var(--text-secondary)',
-                              border: '1px solid var(--border-color)',
-                            }}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
+                        ].map((preset) => {
+                          const presetDate = new Date();
+                          presetDate.setDate(presetDate.getDate() + preset.days);
+                          const isActive = scheduledDate === presetDate.toISOString().split('T')[0]
+                            && scheduledHour === preset.hour
+                            && scheduledMinute === preset.minute
+                            && scheduledPeriod === preset.period;
+
+                          return (
+                            <button
+                              key={preset.label}
+                              onClick={() => {
+                                const date = new Date();
+                                date.setDate(date.getDate() + preset.days);
+                                setScheduledDate(date.toISOString().split('T')[0]);
+                                setScheduledHour(preset.hour);
+                                setScheduledMinute(preset.minute);
+                                setScheduledPeriod(preset.period);
+                              }}
+                              className="px-3 py-3 rounded-xl text-xs font-bold transition-all active:scale-95"
+                              style={{
+                                background: isActive ? 'var(--gradient-start)' : 'var(--bg-input)',
+                                color: isActive ? '#fff' : 'var(--text-secondary)',
+                                border: `2px solid ${isActive ? 'var(--gradient-start)' : 'var(--border-color)'}`,
+                              }}
+                            >
+                              {preset.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
                     {/* Date Selector */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
-                        📅 Date
+                        Date
                       </label>
                       <input
                         type="date"
                         value={scheduledDate}
                         onChange={(e) => setScheduledDate(e.target.value)}
                         min={new Date().toISOString().split('T')[0]}
-                        className="w-full rounded-lg px-4 py-2.5 text-sm outline-none border-2 transition-all"
+                        className="w-full rounded-xl px-4 py-3 text-sm outline-none border-2 transition-all"
                         style={{
                           background: 'var(--bg-input)',
                           color: 'var(--text-primary)',
                           borderColor: scheduledDate ? 'var(--gradient-start)' : 'var(--border-color)',
+                          minHeight: '44px',
                         }}
                       />
                     </div>
 
-                    {/* Time Selector */}
+                    {/* Time Selector - larger for touch */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
-                        🕐 Time
+                        Time
                       </label>
                       <div className="grid grid-cols-3 gap-2">
                         <select
                           value={scheduledHour}
                           onChange={(e) => setScheduledHour(e.target.value)}
-                          className="rounded-lg px-3 py-2.5 text-sm font-bold outline-none border-2 transition-all"
+                          className="rounded-xl px-3 py-3 text-sm font-bold outline-none border-2 transition-all text-center"
                           style={{
                             background: 'var(--bg-input)',
                             color: 'var(--text-primary)',
                             borderColor: 'var(--gradient-start)',
+                            minHeight: '44px',
                           }}
                         >
                           {Array.from({ length: 12 }, (_, i) => i + 1).map((hour) => (
@@ -4635,27 +4785,29 @@ function CampaignsView({
                         <select
                           value={scheduledMinute}
                           onChange={(e) => setScheduledMinute(e.target.value)}
-                          className="rounded-lg px-3 py-2.5 text-sm font-bold outline-none border-2 transition-all"
+                          className="rounded-xl px-3 py-3 text-sm font-bold outline-none border-2 transition-all text-center"
                           style={{
                             background: 'var(--bg-input)',
                             color: 'var(--text-primary)',
                             borderColor: 'var(--gradient-start)',
+                            minHeight: '44px',
                           }}
                         >
                           {['00', '15', '30', '45'].map((min) => (
                             <option key={min} value={min}>
-                              {min}
+                              :{min}
                             </option>
                           ))}
                         </select>
                         <select
                           value={scheduledPeriod}
                           onChange={(e) => setScheduledPeriod(e.target.value)}
-                          className="rounded-lg px-3 py-2.5 text-sm font-bold outline-none border-2 transition-all"
+                          className="rounded-xl px-3 py-3 text-sm font-bold outline-none border-2 transition-all text-center"
                           style={{
                             background: 'var(--bg-input)',
                             color: 'var(--text-primary)',
                             borderColor: 'var(--gradient-start)',
+                            minHeight: '44px',
                           }}
                         >
                           <option value="AM">AM</option>
@@ -4670,28 +4822,29 @@ function CampaignsView({
                     {/* Timezone Selector */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--text-muted)' }}>
-                        🌎 Timezone
+                        Timezone
                       </label>
                       <select
                         value={scheduledTimezone}
                         onChange={(e) => setScheduledTimezone(e.target.value)}
-                        className="w-full rounded-lg px-4 py-2.5 text-sm font-bold outline-none border-2 transition-all"
+                        className="w-full rounded-xl px-4 py-3 text-sm font-bold outline-none border-2 transition-all"
                         style={{
                           background: 'var(--bg-input)',
                           color: 'var(--text-primary)',
                           borderColor: 'var(--gradient-start)',
+                          minHeight: '44px',
                         }}
                       >
-                        <option value="PST">🌅 Pacific Time (PST)</option>
-                        <option value="MST">🏔️ Mountain Time (MST)</option>
-                        <option value="CST">🌾 Central Time (CST)</option>
-                        <option value="EST">🗽 Eastern Time (EST)</option>
+                        <option value="PST">Pacific Time (PST)</option>
+                        <option value="MST">Mountain Time (MST)</option>
+                        <option value="CST">Central Time (CST)</option>
+                        <option value="EST">Eastern Time (EST)</option>
                       </select>
                     </div>
 
                     {/* Preview */}
                     {scheduledDate && (
-                      <div className="p-3 rounded-lg text-center" style={{ background: 'var(--status-verified-bg)' }}>
+                      <div className="p-4 rounded-xl text-center" style={{ background: 'var(--status-verified-bg)' }}>
                         <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
                           Scheduled For
                         </p>
@@ -4835,7 +4988,7 @@ function CampaignsView({
                   Preview Emails (Feature 5)
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (!campaignName || selectedLeadsForCampaign.length === 0) {
                       alert('Please fill in campaign name and select leads');
                       return;
@@ -4855,9 +5008,11 @@ function CampaignsView({
                       scheduledDateTimeISO = dateTime.toISOString();
                     }
 
+                    const campaignId = crypto.randomUUID();
+
                     // Create campaign
                     const newCampaign: Campaign = {
-                      id: `campaign-${Date.now()}`,
+                      id: campaignId,
                       name: campaignName,
                       createdAt: new Date().toISOString(),
                       status: enableScheduled ? 'scheduled' : 'draft',
@@ -4884,6 +5039,29 @@ function CampaignsView({
                         timezone: scheduledTimezone,
                       } : undefined,
                     };
+
+                    // Persist campaign to Supabase
+                    if (user) {
+                      const { error } = await supabase.from('campaigns').insert({
+                        id: campaignId,
+                        user_id: user.id,
+                        name: campaignName,
+                        status: newCampaign.status,
+                        total_leads: selectedLeadsForCampaign.length,
+                        emails_sent: 0,
+                        opens: 0,
+                        replies: 0,
+                        follow_up_sequence: newCampaign.followUpSequence || null,
+                        ab_test: newCampaign.abTest || null,
+                        scheduled_send: newCampaign.scheduledSend || null,
+                      });
+
+                      if (error) {
+                        console.error('Failed to save campaign to database:', error);
+                        addNotification('error', 'Campaign Failed', `Could not save campaign: ${error.message}`, 'error');
+                        return;
+                      }
+                    }
 
                     setCampaigns([...campaigns, newCampaign]);
                     if (enableScheduled && scheduledDateTimeISO) {
@@ -5832,10 +6010,10 @@ export default function App() {
 
   // Scheduled campaign scheduler - runs every minute
   useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       const now = new Date();
 
-      campaigns.forEach((campaign) => {
+      for (const campaign of campaigns) {
         if (
           campaign.status === 'scheduled' &&
           campaign.scheduledSend?.scheduledFor
@@ -5844,7 +6022,15 @@ export default function App() {
 
           // Check if it's time to send
           if (now >= scheduledTime) {
-            // Update campaign status to active
+            // Update campaign status to active in Supabase
+            if (user) {
+              await supabase
+                .from('campaigns')
+                .update({ status: 'active', updated_at: new Date().toISOString() })
+                .eq('id', campaign.id);
+            }
+
+            // Update campaign status to active in state
             setCampaigns((prev) =>
               prev.map((c) =>
                 c.id === campaign.id
@@ -5856,6 +6042,17 @@ export default function App() {
             // Remove from scheduled campaigns
             setScheduledCampaigns((prev) => prev.filter((id) => id !== campaign.id));
 
+            // Trigger server-side email check to send any pending emails
+            try {
+              await fetch('/api/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ checkScheduled: true }),
+              });
+            } catch (error) {
+              console.error('Failed to trigger email sending for campaign:', error);
+            }
+
             // Send notification
             addNotification(
               'success',
@@ -5865,11 +6062,11 @@ export default function App() {
             );
           }
         }
-      });
+      }
     }, 60000); // Check every minute
 
     return () => clearInterval(interval);
-  }, [campaigns]);
+  }, [campaigns, user]);
 
   // Follow-up scheduler - runs every minute (simplified version)
   useEffect(() => {
@@ -6139,7 +6336,7 @@ export default function App() {
     }
   };
 
-  const handleScheduleEmailForLead = (scheduledFor: string, subject: string, body: string) => {
+  const handleScheduleEmailForLead = async (scheduledFor: string, subject: string, body: string) => {
     if (!selectedLeadForEmail) return;
 
     // Get next sender via auto-rotation
@@ -6147,7 +6344,7 @@ export default function App() {
     setSenderRotationIndex(sender.index);
 
     const newScheduledEmail: ScheduledEmail = {
-      id: `scheduled-${Date.now()}-${Math.random()}`,
+      id: crypto.randomUUID(),
       lead: selectedLeadForEmail,
       subject,
       body,
@@ -6156,6 +6353,31 @@ export default function App() {
       senderEmail: sender.email,
       createdAt: new Date().toISOString(),
     };
+
+    // Persist to Supabase for server-side sending
+    if (user) {
+      const { error } = await supabase.from('scheduled_emails').insert({
+        id: newScheduledEmail.id,
+        user_id: user.id,
+        lead_id: selectedLeadForEmail.id,
+        lead_name: selectedLeadForEmail.name,
+        lead_email: selectedLeadForEmail.email,
+        lead_company: selectedLeadForEmail.company,
+        lead_role: selectedLeadForEmail.role,
+        subject: newScheduledEmail.subject,
+        body: newScheduledEmail.body,
+        scheduled_for: newScheduledEmail.scheduledFor,
+        sender_name: newScheduledEmail.senderName,
+        sender_email: newScheduledEmail.senderEmail,
+        status: 'pending',
+      });
+
+      if (error) {
+        console.error('Failed to save scheduled email to database:', error);
+        addNotification('error', 'Scheduling Failed', `Could not save scheduled email: ${error.message}`, 'error');
+        return;
+      }
+    }
 
     setScheduledEmails(prev => [...prev, newScheduledEmail]);
     addNotification(
@@ -6865,6 +7087,7 @@ export default function App() {
                   setSenderRotationIndex={setSenderRotationIndex}
                   setScheduledEmails={setScheduledEmails}
                   addNotification={addNotification}
+                  user={user}
                 />
               )}
               {activeTab === 'leads' && (
@@ -7607,6 +7830,7 @@ export default function App() {
                   scheduledEmails={scheduledEmails}
                   setScheduledEmails={setScheduledEmails}
                   addNotification={addNotification}
+                  user={user}
                 />
               )}
 
