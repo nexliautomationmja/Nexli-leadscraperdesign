@@ -104,18 +104,20 @@ async function handleScheduledEmails(res: VercelResponse) {
       try {
         console.log(`  → Sending to ${email.lead_name} (${email.lead_email})`);
 
-        const instantlyResponse = await fetch('https://api.instantly.ai/api/v1/lead/add', {
+        const instantlyResponse = await fetch('https://api.instantly.ai/api/v1/send/email', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${INSTANTLY_API_KEY}`,
+          },
           body: JSON.stringify({
-            api_key: INSTANTLY_API_KEY!,
-            campaign_id: process.env.INSTANTLY_CAMPAIGN_ID!,
-            email: email.lead_email,
-            first_name: email.lead_name.split(' ')[0],
-            last_name: email.lead_name.split(' ').slice(1).join(' ') || '',
-            company_name: email.lead_company || '',
-            personalization: email.body,
-            custom_subject: email.subject,
+            to: email.lead_email,
+            subject: email.subject,
+            body: email.body,
+            from_email: email.sender_email || FROM_EMAIL,
+            from_name: email.sender_name || FROM_NAME,
+            track_opens: true,
+            track_clicks: true,
           }),
         });
 
