@@ -3851,6 +3851,8 @@ function CampaignsView({
   const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [showAllLogs, setShowAllLogs] = useState(false);
 
   // Scheduled emails management state
   const [selectedScheduledEmail, setSelectedScheduledEmail] = useState<ScheduledEmail | null>(null);
@@ -4313,59 +4315,175 @@ function CampaignsView({
       <div className="glass-card p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg md:text-xl font-bold">Recent Activity</h2>
-          <button
-            onClick={refreshAllMetrics}
-            disabled={isRefreshing || campaigns.length === 0}
-            className="text-xs font-medium flex items-center gap-1 hover:opacity-100 transition-opacity disabled:opacity-30"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            <RefreshCw className={cn('w-3 h-3', isRefreshing && 'animate-spin')} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {emailLogs.length} total
+            </span>
+            <button
+              onClick={refreshAllMetrics}
+              disabled={isRefreshing || campaigns.length === 0}
+              className="text-xs font-medium flex items-center gap-1 hover:opacity-100 transition-opacity disabled:opacity-30"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <RefreshCw className={cn('w-3 h-3', isRefreshing && 'animate-spin')} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
         </div>
         {emailLogs.length === 0 ? (
           <p className="text-center py-8" style={{ color: 'var(--text-muted)' }}>
             No emails sent yet
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b" style={{ borderColor: 'var(--border-color)' }}>
-                  <th className="text-left py-2 font-medium" style={{ color: 'var(--text-muted)' }}>Lead</th>
-                  <th className="text-left py-2 font-medium hidden md:table-cell" style={{ color: 'var(--text-muted)' }}>Email</th>
-                  <th className="text-left py-2 font-medium" style={{ color: 'var(--text-muted)' }}>Status</th>
-                  <th className="text-left py-2 font-medium hidden sm:table-cell" style={{ color: 'var(--text-muted)' }}>Sent</th>
-                </tr>
-              </thead>
-              <tbody>
-                {emailLogs.slice(0, 10).map((log) => (
-                  <tr key={log.id} className="border-b" style={{ borderColor: 'var(--border-color)' }}>
-                    <td className="py-3 font-medium">{log.leadName}</td>
-                    <td className="py-3 hidden md:table-cell" style={{ color: 'var(--text-muted)' }}>{log.leadEmail}</td>
-                    <td className="py-3">
-                      <span
-                        className={cn(
-                          'px-2 py-0.5 rounded text-xs font-bold',
-                          log.status === 'sent' && 'bg-blue-500/20 text-blue-500',
-                          log.status === 'opened' && 'bg-purple-500/20 text-purple-500',
-                          log.status === 'clicked' && 'bg-orange-500/20 text-orange-500',
-                          log.status === 'replied' && 'bg-green-500/20 text-green-500',
-                          log.status === 'failed' && 'bg-red-500/20 text-red-500',
-                          log.status === 'pending' && 'bg-gray-500/20 text-gray-500'
-                        )}
-                      >
-                        {log.status}
-                      </span>
-                    </td>
-                    <td className="py-3 text-xs hidden sm:table-cell" style={{ color: 'var(--text-muted)' }}>
-                      {log.sentAt ? new Date(log.sentAt).toLocaleString() : '-'}
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b" style={{ borderColor: 'var(--border-color)' }}>
+                    <th className="text-left py-2 font-medium w-8" style={{ color: 'var(--text-muted)' }}></th>
+                    <th className="text-left py-2 font-medium" style={{ color: 'var(--text-muted)' }}>Sender</th>
+                    <th className="text-left py-2 font-medium" style={{ color: 'var(--text-muted)' }}>Recipient</th>
+                    <th className="text-left py-2 font-medium hidden lg:table-cell" style={{ color: 'var(--text-muted)' }}>Subject</th>
+                    <th className="text-left py-2 font-medium" style={{ color: 'var(--text-muted)' }}>Status</th>
+                    <th className="text-left py-2 font-medium hidden sm:table-cell" style={{ color: 'var(--text-muted)' }}>Sent</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {emailLogs.slice(0, showAllLogs ? 50 : 20).map((log) => {
+                    const senderInfo = SENDER_EMAILS.find(s => s.email.toLowerCase() === (log.senderEmail || '').toLowerCase());
+                    const isExpanded = expandedLogId === log.id;
+
+                    return (
+                      <React.Fragment key={log.id}>
+                        <tr
+                          className="border-b cursor-pointer hover:bg-white/5 transition-colors"
+                          style={{ borderColor: 'var(--border-color)' }}
+                          onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                        >
+                          <td className="py-3">
+                            <ChevronRight
+                              className={cn('w-4 h-4 transition-transform', isExpanded && 'rotate-90')}
+                              style={{ color: 'var(--text-muted)' }}
+                            />
+                          </td>
+                          <td className="py-3">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: senderInfo?.color || '#6B7280' }}
+                              />
+                              <span className="font-medium text-xs">
+                                {log.senderName || senderInfo?.name || 'Unknown'}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3">
+                            <div>
+                              <p className="font-medium text-sm">{log.leadName}</p>
+                              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{log.leadEmail}</p>
+                            </div>
+                          </td>
+                          <td className="py-3 hidden lg:table-cell">
+                            <p className="text-xs truncate max-w-[200px]" style={{ color: 'var(--text-muted)' }}>
+                              {log.subject || 'No subject'}
+                            </p>
+                          </td>
+                          <td className="py-3">
+                            <span
+                              className={cn(
+                                'px-2 py-0.5 rounded text-xs font-bold',
+                                log.status === 'sent' && 'bg-blue-500/20 text-blue-500',
+                                log.status === 'delivered' && 'bg-blue-500/20 text-blue-500',
+                                log.status === 'opened' && 'bg-purple-500/20 text-purple-500',
+                                log.status === 'clicked' && 'bg-orange-500/20 text-orange-500',
+                                log.status === 'replied' && 'bg-green-500/20 text-green-500',
+                                log.status === 'failed' && 'bg-red-500/20 text-red-500',
+                                log.status === 'bounced' && 'bg-red-500/20 text-red-500',
+                                log.status === 'pending' && 'bg-gray-500/20 text-gray-500'
+                              )}
+                            >
+                              {log.status}
+                            </span>
+                          </td>
+                          <td className="py-3 text-xs hidden sm:table-cell" style={{ color: 'var(--text-muted)' }}>
+                            {log.sentAt ? new Date(log.sentAt).toLocaleString(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true,
+                            }) : '-'}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={6} className="p-0">
+                              <div
+                                className="p-4 mx-2 mb-2 rounded-xl"
+                                style={{ background: 'var(--bg-input)' }}
+                              >
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                  <div>
+                                    <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                                      From
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <div
+                                        className="w-3 h-3 rounded-full"
+                                        style={{ backgroundColor: senderInfo?.color || '#6B7280' }}
+                                      />
+                                      <span className="text-sm font-medium">
+                                        {log.senderName || 'Unknown'} ({log.senderEmail || 'N/A'})
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                                      To
+                                    </p>
+                                    <span className="text-sm font-medium">
+                                      {log.leadName} ({log.leadEmail})
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="mb-3">
+                                  <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                                    Subject
+                                  </p>
+                                  <p className="text-sm font-medium">{log.subject || 'No subject'}</p>
+                                </div>
+                                {log.body && (
+                                  <div>
+                                    <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
+                                      Body
+                                    </p>
+                                    <div
+                                      className="text-sm rounded-lg p-3 max-h-[300px] overflow-y-auto"
+                                      style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                                      dangerouslySetInnerHTML={{ __html: log.body }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {emailLogs.length > 20 && !showAllLogs && (
+              <button
+                onClick={() => setShowAllLogs(true)}
+                className="w-full mt-3 py-2 text-xs font-medium rounded-lg transition-all hover:opacity-80"
+                style={{ color: 'var(--text-muted)', background: 'var(--bg-input)' }}
+              >
+                Show More ({emailLogs.length - 20} remaining)
+              </button>
+            )}
+          </>
         )}
       </div>
 
