@@ -2,14 +2,32 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
 const INSTANTLY_API_KEY = process.env.INSTANTLY_API_KEY;
-const INSTANTLY_CAMPAIGN_ID = process.env.INSTANTLY_CAMPAIGN_ID;
-const FROM_EMAIL = process.env.FROM_EMAIL || 'justine@nexli.com';
+
+// Per-sender campaign IDs
+const SENDER_CAMPAIGNS: Record<string, string | undefined> = {
+  'marcel@nexlioutreach.net': process.env.INSTANTLY_CAMPAIGN_MARCEL,
+  'justine@nexlioutreach.net': process.env.INSTANTLY_CAMPAIGN_JUSTINE,
+  'bernice@nexlioutreach.net': process.env.INSTANTLY_CAMPAIGN_BERNICE,
+  'jian@nexlioutreach.net': process.env.INSTANTLY_CAMPAIGN_JIAN,
+};
+
+// Fallback campaign ID
+const DEFAULT_CAMPAIGN_ID = process.env.INSTANTLY_CAMPAIGN_ID;
 
 // Initialize Supabase client with service role key
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+// Get campaign ID based on sender email
+function getCampaignForSender(senderEmail: string): string {
+  const campaignId = SENDER_CAMPAIGNS[senderEmail.toLowerCase()] || DEFAULT_CAMPAIGN_ID;
+  if (!campaignId) {
+    throw new Error(`No campaign configured for sender: ${senderEmail}`);
+  }
+  return campaignId;
+}
 
 // Add a lead to an Instantly campaign via v2 API
 async function addLeadToCampaign(lead: {
@@ -19,11 +37,9 @@ async function addLeadToCampaign(lead: {
   companyName?: string;
   subject: string;
   body: string;
+  senderEmail: string;
 }) {
-  const campaignId = INSTANTLY_CAMPAIGN_ID;
-  if (!campaignId) {
-    throw new Error('INSTANTLY_CAMPAIGN_ID not configured');
-  }
+  const campaignId = getCampaignForSender(lead.senderEmail);
 
   const response = await fetch('https://api.instantly.ai/api/v2/leads/add', {
     method: 'POST',
@@ -68,7 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { to, subject, body, checkScheduled } = req.body;
+    const { to, subject, body, fromEmail, checkScheduled } = req.body;
 
     // Handle scheduled email checking
     if (checkScheduled) {
@@ -86,6 +102,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       lastName: '',
       subject,
       body,
+      senderEmail: fromEmail || 'justine@nexlioutreach.net',
     });
 
     return res.json({ success: true, data: result });
@@ -105,7 +122,13 @@ async function handleScheduledEmails(res: VercelResponse) {
       supabase_url: process.env.VITE_SUPABASE_URL ? 'SET' : 'MISSING',
       service_role_key: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'MISSING',
       instantly_api_key: INSTANTLY_API_KEY ? 'SET' : 'MISSING',
-      instantly_campaign_id: INSTANTLY_CAMPAIGN_ID || 'MISSING',
+      campaigns: {
+        marcel: process.env.INSTANTLY_CAMPAIGN_MARCEL ? 'SET' : 'MISSING',
+        justine: process.env.INSTANTLY_CAMPAIGN_JUSTINE ? 'SET' : 'MISSING',
+        bernice: process.env.INSTANTLY_CAMPAIGN_BERNICE ? 'SET' : 'MISSING',
+        jian: process.env.INSTANTLY_CAMPAIGN_JIAN ? 'SET' : 'MISSING',
+        fallback: DEFAULT_CAMPAIGN_ID ? 'SET' : 'MISSING',
+      },
     });
 
     // Step 2: Query Supabase
@@ -127,7 +150,7 @@ async function handleScheduledEmails(res: VercelResponse) {
     // Also check ALL emails in table for debugging
     const { data: allEmails, error: allError } = await supabase
       .from('scheduled_emails')
-      .select('id, status, scheduled_for, lead_email, lead_name')
+      .select('id, status, scheduled_for, lead_email, lead_name, sender_email')
       .order('created_at', { ascending: false })
       .limit(10);
 
@@ -149,19 +172,21 @@ async function handleScheduledEmails(res: VercelResponse) {
     for (const email of scheduledEmails) {
       try {
         const nameParts = (email.lead_name || '').split(' ');
-        const leadPayload = {
+
+        const instantlyResult = await addLeadToCampaign({
           email: email.lead_email,
           firstName: nameParts[0] || '',
           lastName: nameParts.slice(1).join(' ') || '',
           companyName: email.lead_company || '',
           subject: email.subject,
           body: email.body,
-        };
-
-        const instantlyResult = await addLeadToCampaign(leadPayload);
+          senderEmail: email.sender_email || 'justine@nexlioutreach.net',
+        });
 
         results.push({
           lead: email.lead_email,
+          sender: email.sender_email,
+          campaign: getCampaignForSender(email.sender_email || 'justine@nexlioutreach.net'),
           status: 'success',
           instantly_response: instantlyResult,
         });
@@ -191,6 +216,7 @@ async function handleScheduledEmails(res: VercelResponse) {
       } catch (error: any) {
         results.push({
           lead: email.lead_email,
+          sender: email.sender_email,
           status: 'failed',
           error: error.message,
         });
