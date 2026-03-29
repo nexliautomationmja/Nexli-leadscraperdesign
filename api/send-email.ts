@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const INSTANTLY_API_KEY = process.env.INSTANTLY_API_KEY;
 const FROM_EMAIL = process.env.FROM_EMAIL || 'justine@nexli.com';
-const FROM_NAME = process.env.FROM_NAME || 'Justine';
+
 
 // Initialize Supabase client with service role key
 const supabase = createClient(
@@ -21,7 +21,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { to, subject, body, campaignId, leadId, fromEmail, fromName, checkScheduled } = req.body;
+    const { to, subject, body, fromEmail, checkScheduled } = req.body;
 
     // Handle scheduled email checking
     if (checkScheduled) {
@@ -36,26 +36,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Use dynamic sender (for rotation) or fall back to env variables
     const senderEmail = fromEmail || FROM_EMAIL;
-    const senderName = fromName || FROM_NAME;
 
-    // Send via Instantly.ai API
-    const response = await fetch('https://api.instantly.ai/api/v1/send/email', {
+    // Send via Instantly.ai API v2
+    const response = await fetch('https://api.instantly.ai/api/v2/emails/test', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${INSTANTLY_API_KEY}`,
       },
       body: JSON.stringify({
-        to,
+        eaccount: senderEmail,
+        to_address_email_list: to,
         subject,
-        body,
-        from_email: senderEmail, // Rotated sender or default from env
-        from_name: senderName,
-        track_opens: true,
-        track_clicks: true,
-        custom_fields: {
-          campaign_id: campaignId || '',
-          lead_id: leadId || '',
+        body: {
+          html: body,
+          text: body.replace(/<[^>]*>/g, ''),
         },
       }),
     });
@@ -104,20 +99,20 @@ async function handleScheduledEmails(res: VercelResponse) {
       try {
         console.log(`  → Sending to ${email.lead_name} (${email.lead_email})`);
 
-        const instantlyResponse = await fetch('https://api.instantly.ai/api/v1/send/email', {
+        const instantlyResponse = await fetch('https://api.instantly.ai/api/v2/emails/test', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${INSTANTLY_API_KEY}`,
           },
           body: JSON.stringify({
-            to: email.lead_email,
+            eaccount: email.sender_email || FROM_EMAIL,
+            to_address_email_list: email.lead_email,
             subject: email.subject,
-            body: email.body,
-            from_email: email.sender_email || FROM_EMAIL,
-            from_name: email.sender_name || FROM_NAME,
-            track_opens: true,
-            track_clicks: true,
+            body: {
+              html: email.body,
+              text: email.body.replace(/<[^>]*>/g, ''),
+            },
           }),
         });
 
