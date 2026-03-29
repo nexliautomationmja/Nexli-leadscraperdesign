@@ -96,10 +96,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 // Handle scheduled email sending
 async function handleScheduledEmails(res: VercelResponse) {
-  try {
-    console.log('Checking for scheduled emails to send...');
+  const diagnostics: any[] = [];
 
+  try {
+    // Step 1: Check env vars
+    diagnostics.push({
+      step: 'env_check',
+      supabase_url: process.env.VITE_SUPABASE_URL ? 'SET' : 'MISSING',
+      service_role_key: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'MISSING',
+      instantly_api_key: INSTANTLY_API_KEY ? 'SET' : 'MISSING',
+      instantly_campaign_id: INSTANTLY_CAMPAIGN_ID || 'MISSING',
+    });
+
+    // Step 2: Query Supabase
     const now = new Date().toISOString();
+    diagnostics.push({ step: 'query_time', now });
+
     const { data: scheduledEmails, error: fetchError } = await supabase
       .from('scheduled_emails')
       .select('*')
@@ -108,32 +120,50 @@ async function handleScheduledEmails(res: VercelResponse) {
       .order('scheduled_for', { ascending: true });
 
     if (fetchError) {
-      console.error('Error fetching scheduled emails:', fetchError);
-      return res.status(500).json({ error: 'Failed to fetch scheduled emails' });
+      diagnostics.push({ step: 'supabase_error', error: fetchError.message, code: fetchError.code });
+      return res.status(500).json({ error: 'Failed to fetch scheduled emails', diagnostics });
     }
+
+    // Also check ALL emails in table for debugging
+    const { data: allEmails, error: allError } = await supabase
+      .from('scheduled_emails')
+      .select('id, status, scheduled_for, lead_email, lead_name')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    diagnostics.push({
+      step: 'supabase_query',
+      pending_due_count: scheduledEmails?.length || 0,
+      all_recent_emails: allEmails || [],
+      all_query_error: allError?.message || null,
+    });
 
     if (!scheduledEmails || scheduledEmails.length === 0) {
-      console.log('No scheduled emails to send');
-      return res.status(200).json({ message: 'No scheduled emails to send', sent: 0 });
+      return res.status(200).json({ message: 'No scheduled emails to send', sent: 0, diagnostics });
     }
-
-    console.log(`Found ${scheduledEmails.length} emails to send`);
 
     let sentCount = 0;
     let failedCount = 0;
+    const results: any[] = [];
 
     for (const email of scheduledEmails) {
       try {
-        console.log(`  Sending to ${email.lead_name} (${email.lead_email})`);
-
         const nameParts = (email.lead_name || '').split(' ');
-        await addLeadToCampaign({
+        const leadPayload = {
           email: email.lead_email,
           firstName: nameParts[0] || '',
           lastName: nameParts.slice(1).join(' ') || '',
           companyName: email.lead_company || '',
           subject: email.subject,
           body: email.body,
+        };
+
+        const instantlyResult = await addLeadToCampaign(leadPayload);
+
+        results.push({
+          lead: email.lead_email,
+          status: 'success',
+          instantly_response: instantlyResult,
         });
 
         await supabase
@@ -157,10 +187,13 @@ async function handleScheduledEmails(res: VercelResponse) {
           sender_email: email.sender_email,
         });
 
-        console.log(`  Sent to ${email.lead_name}`);
         sentCount++;
       } catch (error: any) {
-        console.error(`  Failed to send to ${email.lead_name}:`, error.message);
+        results.push({
+          lead: email.lead_email,
+          status: 'failed',
+          error: error.message,
+        });
 
         await supabase
           .from('scheduled_emails')
@@ -175,16 +208,17 @@ async function handleScheduledEmails(res: VercelResponse) {
       }
     }
 
-    console.log(`Sent ${sentCount} emails, ${failedCount} failed`);
+    diagnostics.push({ step: 'results', results });
 
     return res.status(200).json({
       message: `Sent ${sentCount} emails`,
       sent: sentCount,
       failed: failedCount,
       total: scheduledEmails.length,
+      diagnostics,
     });
   } catch (error: any) {
-    console.error('Error in handleScheduledEmails:', error);
-    return res.status(500).json({ error: error.message });
+    diagnostics.push({ step: 'fatal_error', error: error.message });
+    return res.status(500).json({ error: error.message, diagnostics });
   }
 }
