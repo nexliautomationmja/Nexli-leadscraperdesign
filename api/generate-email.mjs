@@ -277,6 +277,11 @@ export default async function handler(req, res) {
 
     const email = JSON.parse(jsonMatch[0]);
 
+    // Capitalize first letter of subject (unless it starts with a number)
+    if (email.subject && /^[a-z]/.test(email.subject)) {
+      email.subject = email.subject.charAt(0).toUpperCase() + email.subject.slice(1);
+    }
+
     // Return email with variation metadata
     return res.json({
       ...email,

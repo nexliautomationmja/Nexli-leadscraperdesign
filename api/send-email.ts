@@ -41,6 +41,11 @@ async function addLeadToCampaign(lead: {
 }) {
   const campaignId = getCampaignForSender(lead.senderEmail);
 
+  // Capitalize first letter of subject (unless it starts with a number)
+  const subject = lead.subject && /^[a-z]/.test(lead.subject)
+    ? lead.subject.charAt(0).toUpperCase() + lead.subject.slice(1)
+    : lead.subject;
+
   const response = await fetch('https://api.instantly.ai/api/v2/leads/add', {
     method: 'POST',
     headers: {
@@ -58,7 +63,7 @@ async function addLeadToCampaign(lead: {
           company_name: lead.companyName || '',
           personalization: lead.body,
           custom_variables: {
-            email_subject: lead.subject,
+            email_subject: subject,
             email_body: lead.body,
           },
         },
