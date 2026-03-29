@@ -6594,7 +6594,7 @@ export default function App() {
 
           // Save to Supabase for server-side sending
           if (user) {
-            await supabase.from('scheduled_emails').insert({
+            const { error: insertError } = await supabase.from('scheduled_emails').insert({
               id: newScheduledEmail.id,
               user_id: user.id,
               lead_id: lead.id,
@@ -6609,6 +6609,13 @@ export default function App() {
               sender_email: newScheduledEmail.senderEmail,
               status: 'pending',
             });
+            if (insertError) {
+              console.error('Failed to save scheduled email to Supabase:', insertError);
+              addNotification('error', 'Schedule Error', `Failed to save scheduled email for ${lead.name}: ${insertError.message}`);
+            }
+          } else {
+            console.error('No user session - cannot save scheduled email to Supabase');
+            addNotification('error', 'Not Logged In', 'Please log in to schedule emails');
           }
 
           setScheduledEmails(prev => [...prev, newScheduledEmail]);
