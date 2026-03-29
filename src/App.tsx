@@ -5194,9 +5194,7 @@ function CampaignsView({
 
                     // Persist campaign to Supabase
                     if (user) {
-                      // Try full insert first, fall back to basic if columns don't exist
-                      let insertError;
-                      const { error: fullError } = await supabase.from('campaigns').insert({
+                      const { error } = await supabase.from('campaigns').insert({
                         id: campaignId,
                         user_id: user.id,
                         name: campaignName,
@@ -5205,26 +5203,7 @@ function CampaignsView({
                         emails_sent: 0,
                         opens: 0,
                         replies: 0,
-                        scheduled_send: newCampaign.scheduledSend || null,
                       });
-
-                      if (fullError?.message?.includes('column')) {
-                        // Fallback: insert without optional columns
-                        const { error: basicError } = await supabase.from('campaigns').insert({
-                          id: campaignId,
-                          user_id: user.id,
-                          name: campaignName,
-                          status: newCampaign.status,
-                          total_leads: selectedLeadsForCampaign.length,
-                          emails_sent: 0,
-                          opens: 0,
-                          replies: 0,
-                        });
-                        insertError = basicError;
-                      } else {
-                        insertError = fullError;
-                      }
-                      const error = insertError;
 
                       if (error) {
                         console.error('Failed to save campaign to database:', error);
@@ -5922,7 +5901,7 @@ export default function App() {
             .order('created_at', { ascending: false });
 
           if (campaignsData) {
-            setCampaigns(campaignsData.map(campaign => ({
+            setCampaigns(campaignsData.map((campaign: any) => ({
               id: campaign.id,
               name: campaign.name,
               createdAt: campaign.created_at,
@@ -5931,17 +5910,17 @@ export default function App() {
               senderName: '',
               senderEmail: '',
               metrics: {
-                total: campaign.total_leads,
-                sent: campaign.emails_sent,
+                total: campaign.total_leads || 0,
+                sent: campaign.emails_sent || 0,
                 delivered: 0,
-                opened: campaign.opens,
+                opened: campaign.opens || 0,
                 clicked: 0,
-                replied: campaign.replies,
+                replied: campaign.replies || 0,
                 bounced: 0,
               },
-              followUpSequence: campaign.follow_up_sequence,
-              abTest: campaign.ab_test,
-              scheduledSend: campaign.scheduled_send,
+              followUpSequence: campaign.follow_up_sequence || null,
+              abTest: campaign.ab_test || null,
+              scheduledSend: campaign.scheduled_send || null,
             })));
           }
 
@@ -5968,26 +5947,23 @@ export default function App() {
           // Load email logs from database
           const { data: logsData } = await supabase
             .from('email_logs')
-            .select(`
-              *,
-              leads:lead_id (name, email)
-            `)
+            .select('*')
             .eq('user_id', session.user.id)
             .order('sent_at', { ascending: false });
 
           if (logsData) {
-            setEmailLogs(logsData.map(log => ({
+            setEmailLogs(logsData.map((log: any) => ({
               id: log.id,
               campaignId: log.campaign_id || '',
               leadId: log.lead_id,
-              leadName: (log.leads as any)?.name || '',
-              leadEmail: (log.leads as any)?.email || '',
+              leadName: '',
+              leadEmail: '',
               sentAt: log.sent_at,
               status: log.status as any,
               subject: log.subject,
               body: log.body,
-              senderName: log.sender_name,
-              senderEmail: log.sender_email,
+              senderName: log.sender_name || '',
+              senderEmail: log.sender_email || '',
             })));
           }
 
@@ -6058,73 +6034,9 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load user data from Supabase when user logs in
-  useEffect(() => {
-    if (!user) return;
-
-    const loadUserData = async () => {
-      try {
-        setLoading(true);
-
-        // Fetch user profile
-        const { data: profile } = await supabase
-          .from('users')
-          .select('full_name, profile_photo_url')
-          .eq('id', user.id)
-          .single();
-
-        if (profile) {
-          setUserProfile(profile);
-        }
-
-        // Fetch leads
-        const { data: leads, error: leadsError } = await supabase
-          .from('leads')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (leadsError) throw leadsError;
-
-        if (leads) {
-          // Map database fields to Lead interface
-          const mappedLeads: Lead[] = leads.map((dbLead: any) => ({
-            id: dbLead.id,
-            name: dbLead.name,
-            email: dbLead.email,
-            company: dbLead.company,
-            role: dbLead.role,
-            linkedin: dbLead.linkedin,
-            phone: dbLead.phone,
-            city: dbLead.city,
-            state: dbLead.state,
-            country: dbLead.country,
-            location: dbLead.location,
-            website: dbLead.website,
-            orgWebsite: dbLead.org_website,
-            orgSize: dbLead.org_size,
-            orgIndustry: dbLead.org_industry,
-            score: dbLead.score,
-            status: dbLead.status || 'new',
-            tags: dbLead.tags || [],
-            isFavorite: dbLead.is_favorite || false,
-            googleRating: dbLead.google_rating,
-            googleReviewCount: dbLead.google_review_count,
-            createdAt: dbLead.created_at,
-          }));
-
-          setAllLeads(mappedLeads);
-        }
-      } catch (error: any) {
-        console.error('Error loading user data:', error);
-        addNotification('error', 'Load Failed', 'Could not load your data from database');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadUserData();
-  }, [user]);
+  // Note: User data is loaded in the checkAuth useEffect above.
+  // A separate useEffect for [user] was removed because it caused double-loading
+  // (checkAuth sets user → second effect fires → setLoading(true) again → stuck loading screen).
 
   // DISABLED: Auto-reload on tab visibility change
   // User needs to freely navigate to lead websites without page refreshing
