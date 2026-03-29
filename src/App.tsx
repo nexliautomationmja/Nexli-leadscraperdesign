@@ -2059,11 +2059,13 @@ const StatCard = ({
 const DashboardView = ({
   recentLeads,
   isDark,
-  emailLogs
+  emailLogs,
+  senderInstantlyMetrics = {},
 }: {
   recentLeads: Lead[];
   isDark: boolean;
   emailLogs: EmailLog[];
+  senderInstantlyMetrics: Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>;
 }) => {
   // Calculate lead tier breakdown
   const hotLeads = recentLeads.filter((l) => l.score >= 60).length;
@@ -2204,13 +2206,16 @@ const DashboardView = ({
 
       {/* Sender Performance A/B/C/D Testing */}
       {(() => {
-        // Calculate metrics for each sender
+        // Calculate metrics for each sender using real Instantly data
         const senderMetrics = SENDER_EMAILS.map(sender => {
+          const instantlyData = senderInstantlyMetrics[sender.email];
           const senderLogs = emailLogs.filter(log => log.senderEmail === sender.email);
-          const totalSent = senderLogs.length;
-          const opened = senderLogs.filter(log => log.status === 'opened').length;
-          const clicked = senderLogs.filter(log => log.status === 'clicked').length;
-          const replied = senderLogs.filter(log => log.status === 'replied').length;
+
+          // Use real Instantly metrics if available, otherwise fall back to email logs
+          const totalSent = instantlyData?.sent || senderLogs.length;
+          const opened = instantlyData?.opened || senderLogs.filter(log => log.status === 'opened').length;
+          const clicked = instantlyData?.clicked || senderLogs.filter(log => log.status === 'clicked').length;
+          const replied = instantlyData?.replied || senderLogs.filter(log => log.status === 'replied').length;
 
           return {
             name: sender.name,
@@ -2221,6 +2226,7 @@ const DashboardView = ({
             openRate: totalSent > 0 ? ((opened / totalSent) * 100).toFixed(1) : '0.0',
             clickRate: totalSent > 0 ? ((clicked / totalSent) * 100).toFixed(1) : '0.0',
             replyRate: totalSent > 0 ? ((replied / totalSent) * 100).toFixed(1) : '0.0',
+            hasRealData: !!instantlyData,
           };
         });
 
@@ -3832,6 +3838,8 @@ function CampaignsView({
   scheduledEmails,
   setScheduledEmails,
   addNotification,
+  senderInstantlyMetrics,
+  setSenderInstantlyMetrics,
 }: {
   isDark: boolean;
   campaigns: Campaign[];
@@ -3845,6 +3853,8 @@ function CampaignsView({
   scheduledEmails: ScheduledEmail[];
   setScheduledEmails: React.Dispatch<React.SetStateAction<ScheduledEmail[]>>;
   addNotification: (type: 'success' | 'info' | 'warning' | 'error', title: string, message: string, icon?: 'lead' | 'email' | 'campaign' | 'reply' | 'error') => void;
+  senderInstantlyMetrics: Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>;
+  setSenderInstantlyMetrics: React.Dispatch<React.SetStateAction<Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>>>;
 }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
@@ -3887,32 +3897,63 @@ function CampaignsView({
     body: string;
   }>>([]);
 
-  // Refresh campaign metrics from Instantly.ai API
+  // Refresh campaign metrics from Instantly.ai API v2
   const refreshAllMetrics = async () => {
-    if (campaigns.length === 0) return;
-
     setIsRefreshing(true);
     try {
-      // Refresh metrics for each campaign
-      const updates = await Promise.all(
-        campaigns.map(async (campaign) => {
-          try {
-            const response = await fetch(`/api/instantly-metrics?campaignId=${campaign.id}`);
-            if (!response.ok) {
-              console.error(`Failed to fetch metrics for campaign ${campaign.id}`);
-              return campaign; // Return unchanged if fetch fails
-            }
-            const metrics = await response.json();
-            return { ...campaign, metrics };
-          } catch (error) {
-            console.error(`Error fetching metrics for campaign ${campaign.id}:`, error);
-            return campaign; // Return unchanged if error
-          }
-        })
-      );
+      // Fetch real metrics for all 4 sender campaigns
+      const response = await fetch('/api/instantly-metrics');
+      if (response.ok) {
+        const data = await response.json();
 
-      setCampaigns(updates);
-      setLastRefreshed(new Date());
+        // Update sender-level metrics
+        if (data.senders) {
+          const metricsMap: Record<string, any> = {};
+          const senderEmailMap: Record<string, string> = {
+            marcel: 'Marcel@nexlioutreach.net',
+            justine: 'Justine@nexlioutreach.net',
+            bernice: 'Bernice@nexlioutreach.net',
+            jian: 'Jian@nexlioutreach.net',
+          };
+
+          for (const [senderKey, metrics] of Object.entries(data.senders) as [string, any][]) {
+            const email = senderEmailMap[senderKey];
+            if (email && !metrics.error) {
+              metricsMap[email] = {
+                sent: metrics.sent || 0,
+                opened: metrics.opened || 0,
+                clicked: metrics.clicked || 0,
+                replied: metrics.replied || 0,
+                bounced: metrics.bounced || 0,
+              };
+            }
+          }
+          setSenderInstantlyMetrics(metricsMap);
+        }
+
+        // Update campaign cards with aggregated totals
+        if (data.totals && campaigns.length > 0) {
+          const updatedCampaigns = campaigns.map(campaign => ({
+            ...campaign,
+            metrics: {
+              ...campaign.metrics,
+              sent: data.totals.sent,
+              opened: data.totals.opened,
+              clicked: data.totals.clicked,
+              replied: data.totals.replied,
+              bounced: data.totals.bounced,
+              total: data.totals.total,
+              delivered: data.totals.sent,
+            },
+          }));
+          setCampaigns(updatedCampaigns);
+        }
+
+        setLastRefreshed(new Date());
+        addNotification('success', 'Metrics Updated', 'Real-time metrics loaded from Instantly', 'campaign');
+      } else {
+        console.error('Failed to fetch metrics');
+      }
     } catch (error) {
       console.error('Failed to refresh metrics:', error);
     } finally {
@@ -5424,6 +5465,9 @@ export default function App() {
     const stored = localStorage.getItem('nexli-email-logs');
     return stored ? JSON.parse(stored) : [];
   });
+
+  // Real Instantly metrics per sender (shared between Dashboard and Campaigns)
+  const [senderInstantlyMetrics, setSenderInstantlyMetrics] = useState<Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>>({});
 
   // Mobile sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -6980,7 +7024,7 @@ export default function App() {
               transition={{ duration: 0.3, ease: 'easeOut' }}
             >
               {activeTab === 'dashboard' && (
-                <DashboardView recentLeads={allLeads} isDark={isDark} emailLogs={emailLogs} />
+                <DashboardView recentLeads={allLeads} isDark={isDark} emailLogs={emailLogs} senderInstantlyMetrics={senderInstantlyMetrics} />
               )}
               {activeTab === 'scraper' && (
                 <ScraperView
@@ -7732,6 +7776,8 @@ export default function App() {
                   scheduledEmails={scheduledEmails}
                   setScheduledEmails={setScheduledEmails}
                   addNotification={addNotification}
+                  senderInstantlyMetrics={senderInstantlyMetrics}
+                  setSenderInstantlyMetrics={setSenderInstantlyMetrics}
                 />
               )}
 
