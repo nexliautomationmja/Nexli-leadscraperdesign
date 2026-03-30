@@ -4171,13 +4171,17 @@ function CampaignsView({
             <button
               onClick={async () => {
                 try {
+                  // Get current user
+                  const { data: { session } } = await supabase.auth.getSession();
+                  const currentUser = session?.user;
+
                   // Step 1: Check what the CLIENT sees in Supabase
                   let clientMsg = '';
-                  if (user) {
+                  if (currentUser) {
                     const { data: clientPending, error: clientErr } = await supabase
                       .from('scheduled_emails')
                       .select('id, status, scheduled_for, lead_email, sender_email')
-                      .eq('user_id', user.id)
+                      .eq('user_id', currentUser.id)
                       .order('created_at', { ascending: false })
                       .limit(10);
 
@@ -4215,11 +4219,11 @@ function CampaignsView({
                   }
 
                   // Reload scheduled emails
-                  if (user) {
+                  if (currentUser) {
                     const { data } = await supabase
                       .from('scheduled_emails')
                       .select('*')
-                      .eq('user_id', user.id)
+                      .eq('user_id', currentUser.id)
                       .eq('status', 'pending')
                       .order('scheduled_for', { ascending: true });
                     if (data) {
