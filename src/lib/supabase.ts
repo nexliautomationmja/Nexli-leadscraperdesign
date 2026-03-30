@@ -163,10 +163,12 @@ export interface Database {
           lead_id: string;
           subject: string;
           body: string;
-          status: 'sent' | 'opened' | 'replied' | 'bounced';
+          status: 'sent' | 'delivered' | 'opened' | 'clicked' | 'replied' | 'bounced';
           sent_at: string;
           sender_name: string | null;
           sender_email: string | null;
+          resend_id: string | null;
+          updated_at: string | null;
         };
         Insert: {
           id?: string;
@@ -175,10 +177,11 @@ export interface Database {
           lead_id: string;
           subject: string;
           body: string;
-          status?: 'sent' | 'opened' | 'replied' | 'bounced';
+          status?: 'sent' | 'delivered' | 'opened' | 'clicked' | 'replied' | 'bounced';
           sent_at?: string;
           sender_name?: string | null;
           sender_email?: string | null;
+          resend_id?: string | null;
         };
         Update: {
           id?: string;
@@ -187,10 +190,12 @@ export interface Database {
           lead_id?: string;
           subject?: string;
           body?: string;
-          status?: 'sent' | 'opened' | 'replied' | 'bounced';
+          status?: 'sent' | 'delivered' | 'opened' | 'clicked' | 'replied' | 'bounced';
           sent_at?: string;
           sender_name?: string | null;
           sender_email?: string | null;
+          resend_id?: string | null;
+          updated_at?: string | null;
         };
       };
     };

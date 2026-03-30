@@ -1756,12 +1756,12 @@ const PerformanceTracker = () => {
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<string>('');
 
-  // Fetch performance data from Instantly
+  // Fetch performance data from email metrics
   useEffect(() => {
     const fetchPerformanceData = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/instantly-performance');
+        const response = await fetch('/api/email-metrics');
 
         if (!response.ok) {
           throw new Error('Failed to fetch performance data');
@@ -1998,7 +1998,7 @@ const PerformanceTracker = () => {
           </p>
         ) : (
           <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
-            📊 Live data from Instantly.ai {lastUpdated && `• Updated ${new Date(lastUpdated).toLocaleTimeString()}`}
+            📊 Live data from Resend {lastUpdated && `• Updated ${new Date(lastUpdated).toLocaleTimeString()}`}
           </p>
         )}
       </div>
@@ -2060,12 +2060,12 @@ const DashboardView = ({
   recentLeads,
   isDark,
   emailLogs,
-  senderInstantlyMetrics = {},
+  senderMetricsData = {},
 }: {
   recentLeads: Lead[];
   isDark: boolean;
   emailLogs: EmailLog[];
-  senderInstantlyMetrics: Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>;
+  senderMetricsData: Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>;
 }) => {
   // Calculate lead tier breakdown
   const hotLeads = recentLeads.filter((l) => l.score >= 60).length;
@@ -2206,16 +2206,16 @@ const DashboardView = ({
 
       {/* Sender Performance A/B/C/D Testing */}
       {(() => {
-        // Calculate metrics for each sender using real Instantly data
+        // Calculate metrics for each sender using real Resend data
         const senderMetrics = SENDER_EMAILS.map(sender => {
-          const instantlyData = senderInstantlyMetrics[sender.email];
+          const metricsData = senderMetricsData[sender.email];
           const senderLogs = emailLogs.filter(log => log.senderEmail === sender.email);
 
-          // Use real Instantly metrics if available, otherwise fall back to email logs
-          const totalSent = instantlyData?.sent || senderLogs.length;
-          const opened = instantlyData?.opened || senderLogs.filter(log => log.status === 'opened').length;
-          const clicked = instantlyData?.clicked || senderLogs.filter(log => log.status === 'clicked').length;
-          const replied = instantlyData?.replied || senderLogs.filter(log => log.status === 'replied').length;
+          // Use real metrics if available, otherwise fall back to email logs
+          const totalSent = metricsData?.sent || senderLogs.length;
+          const opened = metricsData?.opened || senderLogs.filter(log => log.status === 'opened').length;
+          const clicked = metricsData?.clicked || senderLogs.filter(log => log.status === 'clicked').length;
+          const replied = metricsData?.replied || senderLogs.filter(log => log.status === 'replied').length;
 
           return {
             name: sender.name,
@@ -2226,7 +2226,7 @@ const DashboardView = ({
             openRate: totalSent > 0 ? ((opened / totalSent) * 100).toFixed(1) : '0.0',
             clickRate: totalSent > 0 ? ((clicked / totalSent) * 100).toFixed(1) : '0.0',
             replyRate: totalSent > 0 ? ((replied / totalSent) * 100).toFixed(1) : '0.0',
-            hasRealData: !!instantlyData,
+            hasRealData: !!metricsData,
           };
         });
 
@@ -3838,8 +3838,8 @@ function CampaignsView({
   scheduledEmails,
   setScheduledEmails,
   addNotification,
-  senderInstantlyMetrics,
-  setSenderInstantlyMetrics,
+  senderMetricsData,
+  setSenderMetricsData,
 }: {
   isDark: boolean;
   campaigns: Campaign[];
@@ -3853,8 +3853,8 @@ function CampaignsView({
   scheduledEmails: ScheduledEmail[];
   setScheduledEmails: React.Dispatch<React.SetStateAction<ScheduledEmail[]>>;
   addNotification: (type: 'success' | 'info' | 'warning' | 'error', title: string, message: string, icon?: 'lead' | 'email' | 'campaign' | 'reply' | 'error') => void;
-  senderInstantlyMetrics: Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>;
-  setSenderInstantlyMetrics: React.Dispatch<React.SetStateAction<Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>>>;
+  senderMetricsData: Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>;
+  setSenderMetricsData: React.Dispatch<React.SetStateAction<Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>>>;
 }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
@@ -3897,12 +3897,12 @@ function CampaignsView({
     body: string;
   }>>([]);
 
-  // Refresh campaign metrics from Instantly.ai API v2
+  // Refresh campaign metrics from email logs
   const refreshAllMetrics = async () => {
     setIsRefreshing(true);
     try {
-      // Fetch real metrics for all 4 sender campaigns
-      const response = await fetch('/api/instantly-metrics');
+      // Fetch real metrics for all 4 senders
+      const response = await fetch('/api/email-metrics');
       if (response.ok) {
         const data = await response.json();
 
@@ -3928,7 +3928,7 @@ function CampaignsView({
               };
             }
           }
-          setSenderInstantlyMetrics(metricsMap);
+          setSenderMetricsData(metricsMap);
         }
 
         // Update campaign cards with aggregated totals
@@ -5587,8 +5587,8 @@ export default function App() {
     return stored ? JSON.parse(stored) : [];
   });
 
-  // Real Instantly metrics per sender (shared between Dashboard and Campaigns)
-  const [senderInstantlyMetrics, setSenderInstantlyMetrics] = useState<Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>>({});
+  // Real email metrics per sender (shared between Dashboard and Campaigns)
+  const [senderMetricsData, setSenderMetricsData] = useState<Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>>({});
 
   // Mobile sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -7190,7 +7190,7 @@ export default function App() {
               transition={{ duration: 0.3, ease: 'easeOut' }}
             >
               {activeTab === 'dashboard' && (
-                <DashboardView recentLeads={allLeads} isDark={isDark} emailLogs={emailLogs} senderInstantlyMetrics={senderInstantlyMetrics} />
+                <DashboardView recentLeads={allLeads} isDark={isDark} emailLogs={emailLogs} senderMetricsData={senderMetricsData} />
               )}
               {activeTab === 'scraper' && (
                 <ScraperView
@@ -7942,8 +7942,8 @@ export default function App() {
                   scheduledEmails={scheduledEmails}
                   setScheduledEmails={setScheduledEmails}
                   addNotification={addNotification}
-                  senderInstantlyMetrics={senderInstantlyMetrics}
-                  setSenderInstantlyMetrics={setSenderInstantlyMetrics}
+                  senderMetricsData={senderMetricsData}
+                  setSenderMetricsData={setSenderMetricsData}
                 />
               )}
 

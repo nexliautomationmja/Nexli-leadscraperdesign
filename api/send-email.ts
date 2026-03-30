@@ -1,18 +1,16 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { Resend } from 'resend';
 
-const INSTANTLY_API_KEY = process.env.INSTANTLY_API_KEY;
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Per-sender campaign IDs
-const SENDER_CAMPAIGNS: Record<string, string | undefined> = {
-  'marcel@nexlioutreach.net': process.env.INSTANTLY_CAMPAIGN_MARCEL,
-  'justine@nexlioutreach.net': process.env.INSTANTLY_CAMPAIGN_JUSTINE,
-  'bernice@nexlioutreach.net': process.env.INSTANTLY_CAMPAIGN_BERNICE,
-  'jian@nexlioutreach.net': process.env.INSTANTLY_CAMPAIGN_JIAN,
+// Sender display names
+const SENDER_NAMES: Record<string, string> = {
+  'marcel@nexlioutreach.net': 'Marcel',
+  'justine@nexlioutreach.net': 'Justine',
+  'bernice@nexlioutreach.net': 'Bernice',
+  'jian@nexlioutreach.net': 'Jian',
 };
-
-// Fallback campaign ID
-const DEFAULT_CAMPAIGN_ID = process.env.INSTANTLY_CAMPAIGN_ID;
 
 // Initialize Supabase client with service role key
 const supabase = createClient(
@@ -20,63 +18,32 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Get campaign ID based on sender email
-function getCampaignForSender(senderEmail: string): string {
-  const campaignId = SENDER_CAMPAIGNS[senderEmail.toLowerCase()] || DEFAULT_CAMPAIGN_ID;
-  if (!campaignId) {
-    throw new Error(`No campaign configured for sender: ${senderEmail}`);
-  }
-  return campaignId;
-}
-
-// Add a lead to an Instantly campaign via v2 API
-async function addLeadToCampaign(lead: {
-  email: string;
-  firstName: string;
-  lastName: string;
-  companyName?: string;
+// Send an email via Resend
+async function sendViaResend(params: {
+  to: string;
   subject: string;
   body: string;
   senderEmail: string;
-}) {
-  const campaignId = getCampaignForSender(lead.senderEmail);
+}): Promise<{ id: string }> {
+  const senderName = SENDER_NAMES[params.senderEmail.toLowerCase()] || 'Nexli';
 
   // Capitalize first letter of subject (unless it starts with a number)
-  const subject = lead.subject && /^[a-z]/.test(lead.subject)
-    ? lead.subject.charAt(0).toUpperCase() + lead.subject.slice(1)
-    : lead.subject;
+  const subject = params.subject && /^[a-z]/.test(params.subject)
+    ? params.subject.charAt(0).toUpperCase() + params.subject.slice(1)
+    : params.subject;
 
-  const response = await fetch('https://api.instantly.ai/api/v2/leads/add', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${INSTANTLY_API_KEY}`,
-    },
-    body: JSON.stringify({
-      campaign_id: campaignId,
-      skip_if_in_campaign: false,
-      leads: [
-        {
-          email: lead.email,
-          first_name: lead.firstName,
-          last_name: lead.lastName,
-          company_name: lead.companyName || '',
-          personalization: lead.body,
-          custom_variables: {
-            email_subject: subject,
-            email_body: lead.body,
-          },
-        },
-      ],
-    }),
+  const { data, error } = await resend.emails.send({
+    from: `${senderName} <${params.senderEmail.toLowerCase()}>`,
+    to: [params.to],
+    subject,
+    html: params.body,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Instantly API error: ${errorText}`);
+  if (error) {
+    throw new Error(`Resend API error: ${error.message}`);
   }
 
-  return await response.json();
+  return { id: data!.id };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -84,8 +51,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!INSTANTLY_API_KEY) {
-    return res.status(500).json({ error: 'INSTANTLY_API_KEY not configured' });
+  if (!process.env.RESEND_API_KEY) {
+    return res.status(500).json({ error: 'RESEND_API_KEY not configured' });
   }
 
   try {
@@ -101,16 +68,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'to, subject, and body are required' });
     }
 
-    const result = await addLeadToCampaign({
-      email: to,
-      firstName: '',
-      lastName: '',
+    const result = await sendViaResend({
+      to,
       subject,
       body,
       senderEmail: fromEmail || 'justine@nexlioutreach.net',
     });
 
-    return res.json({ success: true, data: result });
+    return res.json({ success: true, resendId: result.id });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
@@ -126,17 +91,10 @@ async function handleScheduledEmails(res: VercelResponse) {
       step: 'env_check',
       supabase_url: process.env.VITE_SUPABASE_URL ? 'SET' : 'MISSING',
       service_role_key: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'MISSING',
-      instantly_api_key: INSTANTLY_API_KEY ? 'SET' : 'MISSING',
-      campaigns: {
-        marcel: process.env.INSTANTLY_CAMPAIGN_MARCEL ? 'SET' : 'MISSING',
-        justine: process.env.INSTANTLY_CAMPAIGN_JUSTINE ? 'SET' : 'MISSING',
-        bernice: process.env.INSTANTLY_CAMPAIGN_BERNICE ? 'SET' : 'MISSING',
-        jian: process.env.INSTANTLY_CAMPAIGN_JIAN ? 'SET' : 'MISSING',
-        fallback: DEFAULT_CAMPAIGN_ID ? 'SET' : 'MISSING',
-      },
+      resend_api_key: process.env.RESEND_API_KEY ? 'SET' : 'MISSING',
     });
 
-    // Step 2: Query Supabase
+    // Step 2: Query Supabase for pending emails due now
     const now = new Date().toISOString();
     diagnostics.push({ step: 'query_time', now });
 
@@ -176,18 +134,15 @@ async function handleScheduledEmails(res: VercelResponse) {
 
     for (const email of scheduledEmails) {
       try {
-        const nameParts = (email.lead_name || '').split(' ');
-
-        const instantlyResult = await addLeadToCampaign({
-          email: email.lead_email,
-          firstName: nameParts[0] || '',
-          lastName: nameParts.slice(1).join(' ') || '',
-          companyName: email.lead_company || '',
+        // Send via Resend
+        const resendResult = await sendViaResend({
+          to: email.lead_email,
           subject: email.subject,
           body: email.body,
           senderEmail: email.sender_email || 'justine@nexlioutreach.net',
         });
 
+        // Mark as sent in scheduled_emails
         await supabase
           .from('scheduled_emails')
           .update({
@@ -197,6 +152,7 @@ async function handleScheduledEmails(res: VercelResponse) {
           })
           .eq('id', email.id);
 
+        // Log to email_logs with Resend ID for webhook tracking
         const { error: logError } = await supabase.from('email_logs').insert({
           user_id: email.user_id,
           campaign_id: null,
@@ -207,11 +163,13 @@ async function handleScheduledEmails(res: VercelResponse) {
           sent_at: new Date().toISOString(),
           sender_name: email.sender_name,
           sender_email: email.sender_email,
+          resend_id: resendResult.id,
         });
-        let emailLogStatus = 'saved_with_sender';
+
+        let emailLogStatus = 'saved';
         if (logError) {
           console.error('Failed to insert email_log:', logError.message);
-          // Try without sender columns in case they don't exist yet
+          // Try without resend_id column in case migration hasn't run
           const { error: fallbackError } = await supabase.from('email_logs').insert({
             user_id: email.user_id,
             campaign_id: null,
@@ -220,18 +178,19 @@ async function handleScheduledEmails(res: VercelResponse) {
             body: email.body,
             status: 'sent',
             sent_at: new Date().toISOString(),
+            sender_name: email.sender_name,
+            sender_email: email.sender_email,
           });
           emailLogStatus = fallbackError
             ? `both_failed: ${logError.message} / ${fallbackError.message}`
-            : 'saved_without_sender';
+            : 'saved_without_resend_id';
         }
 
         results.push({
           lead: email.lead_email,
           sender: email.sender_email,
-          campaign: getCampaignForSender(email.sender_email || 'justine@nexlioutreach.net'),
           status: 'success',
-          instantly_response: instantlyResult,
+          resend_id: resendResult.id,
           email_log: emailLogStatus,
         });
 
