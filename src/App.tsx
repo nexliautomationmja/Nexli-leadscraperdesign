@@ -7325,6 +7325,39 @@ export default function App() {
     }
   };
 
+  // Bulk verify all favorited leads
+  const handleVerifyFavorites = async () => {
+    if (!user) return;
+    const favoriteLeads = allLeads.filter(l => l.isFavorite && l.status !== 'verified');
+    if (favoriteLeads.length === 0) {
+      addNotification('info', 'All Verified', 'All favorite leads are already verified!');
+      return;
+    }
+
+    // Optimistic update
+    setAllLeads(prev => prev.map(l =>
+      l.isFavorite ? { ...l, status: 'verified' as const } : l
+    ));
+
+    try {
+      const ids = favoriteLeads.map(l => l.id);
+      const { error } = await supabase
+        .from('leads')
+        .update({ status: 'verified' })
+        .in('id', ids)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Failed to verify favorites:', error);
+        addNotification('error', 'Update Failed', 'Could not verify favorite leads');
+      } else {
+        addNotification('success', 'Favorites Verified', `${favoriteLeads.length} favorite leads marked as verified`);
+      }
+    } catch (error) {
+      console.error('Error verifying favorites:', error);
+    }
+  };
+
   // Enrich existing leads with Google ratings
   const handleEnrichRatings = async (leadsToEnrich?: Lead[]) => {
     const targetLeads = leadsToEnrich || allLeads;
@@ -8377,6 +8410,22 @@ export default function App() {
                         {favoritesFilter === 'exclude-favorites' && '⛔ Exclude'}
                       </span>
                     </button>
+                    {allLeads.some(l => l.isFavorite && l.status !== 'verified') && (
+                      <button
+                        onClick={handleVerifyFavorites}
+                        className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-2"
+                        style={{
+                          background: 'rgba(16, 185, 129, 0.1)',
+                          color: '#10B981',
+                          border: '1px solid #10B981',
+                        }}
+                        title="Mark all favorite leads as verified"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span className="hidden sm:inline">Verify Favorites</span>
+                        <span className="sm:hidden">Verify</span>
+                      </button>
+                    )}
                   </div>
 
                   {allLeads.length > 0 ? (
