@@ -5699,6 +5699,11 @@ function EmailTrackingView({
     }
   };
 
+  // Auto-refresh on mount
+  useEffect(() => {
+    refreshTracking();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleRetryEmail = async (log: EmailLog) => {
     setRetryingId(log.id);
     try {
