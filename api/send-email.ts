@@ -67,7 +67,7 @@ function wrapInTemplate(body: string, senderEmail: string): string {
                 <td style="vertical-align: top;">
                   <p style="color: #ffffff; font-size: 15px; font-weight: 600; margin: 0 0 2px 0;">${senderName}</p>
                   <p style="color: #9ca3af; font-size: 13px; margin: 0 0 2px 0;">${senderRole}</p>
-                  <p style="color: #60a5fa; font-size: 13px; margin: 0;">nexli.net</p>
+                  <p style="margin: 0;"><a href="https://www.nexli.net/rainmaker" style="color: #60a5fa; font-size: 13px; text-decoration: none;">nexli.net</a></p>
                 </td>
               </tr></table>
         </td></tr>
