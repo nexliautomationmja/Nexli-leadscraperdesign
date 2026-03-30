@@ -165,6 +165,8 @@ export interface Database {
           body: string;
           status: 'sent' | 'opened' | 'replied' | 'bounced';
           sent_at: string;
+          sender_name: string | null;
+          sender_email: string | null;
         };
         Insert: {
           id?: string;
@@ -175,6 +177,8 @@ export interface Database {
           body: string;
           status?: 'sent' | 'opened' | 'replied' | 'bounced';
           sent_at?: string;
+          sender_name?: string | null;
+          sender_email?: string | null;
         };
         Update: {
           id?: string;
@@ -185,6 +189,8 @@ export interface Database {
           body?: string;
           status?: 'sent' | 'opened' | 'replied' | 'bounced';
           sent_at?: string;
+          sender_name?: string | null;
+          sender_email?: string | null;
         };
       };
     };

@@ -3950,10 +3950,39 @@ function CampaignsView({
         }
 
         setLastRefreshed(new Date());
-        addNotification('success', 'Metrics Updated', 'Real-time metrics loaded from Instantly', 'campaign');
       } else {
         console.error('Failed to fetch metrics');
       }
+
+      // Also refresh email_logs from Supabase (so Recent Activity updates)
+      if (user) {
+        const { data: logsData } = await supabase
+          .from('email_logs')
+          .select(`
+            *,
+            leads:lead_id (name, email)
+          `)
+          .eq('user_id', user.id)
+          .order('sent_at', { ascending: false });
+
+        if (logsData && logsData.length > 0) {
+          setEmailLogs(logsData.map((log: any) => ({
+            id: log.id,
+            campaignId: log.campaign_id || '',
+            leadId: log.lead_id,
+            leadName: (log.leads as any)?.name || log.lead_name || '',
+            leadEmail: (log.leads as any)?.email || log.lead_email || '',
+            sentAt: log.sent_at,
+            status: log.status as any,
+            subject: log.subject,
+            body: log.body,
+            senderName: log.sender_name,
+            senderEmail: log.sender_email,
+          })));
+        }
+      }
+
+      addNotification('success', 'Metrics Updated', 'Real-time metrics and activity loaded', 'campaign');
     } catch (error) {
       console.error('Failed to refresh metrics:', error);
     } finally {
@@ -5666,6 +5695,32 @@ export default function App() {
                   createdAt: email.created_at,
                 }));
                 setScheduledEmails(emails);
+              }
+
+              // Also reload email_logs so Recent Activity updates
+              const { data: logsData } = await supabase
+                .from('email_logs')
+                .select(`
+                  *,
+                  leads:lead_id (name, email)
+                `)
+                .eq('user_id', user.id)
+                .order('sent_at', { ascending: false });
+
+              if (logsData && logsData.length > 0) {
+                setEmailLogs(logsData.map((log: any) => ({
+                  id: log.id,
+                  campaignId: log.campaign_id || '',
+                  leadId: log.lead_id,
+                  leadName: (log.leads as any)?.name || '',
+                  leadEmail: (log.leads as any)?.email || '',
+                  sentAt: log.sent_at,
+                  status: log.status as any,
+                  subject: log.subject,
+                  body: log.body,
+                  senderName: log.sender_name,
+                  senderEmail: log.sender_email,
+                })));
               }
             }
           }

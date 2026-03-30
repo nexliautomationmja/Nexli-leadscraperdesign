@@ -205,9 +205,9 @@ async function handleScheduledEmails(res: VercelResponse) {
           })
           .eq('id', email.id);
 
-        await supabase.from('email_logs').insert({
+        const { error: logError } = await supabase.from('email_logs').insert({
           user_id: email.user_id,
-          campaign_id: 'scheduled',
+          campaign_id: null,
           lead_id: email.lead_id,
           subject: email.subject,
           body: email.body,
@@ -216,6 +216,19 @@ async function handleScheduledEmails(res: VercelResponse) {
           sender_name: email.sender_name,
           sender_email: email.sender_email,
         });
+        if (logError) {
+          console.error('Failed to insert email_log:', logError.message);
+          // Try without sender columns in case they don't exist yet
+          await supabase.from('email_logs').insert({
+            user_id: email.user_id,
+            campaign_id: null,
+            lead_id: email.lead_id,
+            subject: email.subject,
+            body: email.body,
+            status: 'sent',
+            sent_at: new Date().toISOString(),
+          });
+        }
 
         sentCount++;
       } catch (error: any) {
