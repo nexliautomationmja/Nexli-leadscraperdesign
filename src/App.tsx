@@ -4171,7 +4171,26 @@ function CampaignsView({
             <button
               onClick={async () => {
                 try {
-                  addNotification('info', 'Checking...', 'Triggering server to check and send scheduled emails...');
+                  // Step 1: Check what the CLIENT sees in Supabase
+                  let clientMsg = '';
+                  if (user) {
+                    const { data: clientPending, error: clientErr } = await supabase
+                      .from('scheduled_emails')
+                      .select('id, status, scheduled_for, lead_email, sender_email')
+                      .eq('user_id', user.id)
+                      .order('created_at', { ascending: false })
+                      .limit(10);
+
+                    if (clientErr) {
+                      clientMsg = `CLIENT DB ERROR: ${clientErr.message}`;
+                    } else {
+                      clientMsg = `CLIENT sees ${clientPending?.length || 0} emails:\n${(clientPending || []).map(e => `  ${e.status} | ${e.lead_email} | ${e.scheduled_for}`).join('\n') || '  (none)'}`;
+                    }
+                  } else {
+                    clientMsg = 'CLIENT: No user logged in!';
+                  }
+
+                  // Step 2: Call server to check and send
                   const response = await fetch('/api/send-email', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -4180,21 +4199,22 @@ function CampaignsView({
                   const result = await response.json();
                   console.log('Manual check result:', JSON.stringify(result, null, 2));
 
+                  const serverPending = result.diagnostics?.find((d: any) => d.step === 'supabase_query');
+                  const serverTime = result.diagnostics?.find((d: any) => d.step === 'query_time');
+                  const allRecent = serverPending?.all_recent_emails || [];
+
+                  let serverMsg = `SERVER time: ${serverTime?.now || 'unknown'}\n`;
+                  serverMsg += `SERVER sees ${serverPending?.pending_due_count || 0} pending due\n`;
+                  serverMsg += `SERVER all recent (${allRecent.length}):\n${allRecent.map((e: any) => `  ${e.status} | ${e.lead_email} | ${e.scheduled_for}`).join('\n') || '  (none)'}`;
+
                   if (result.sent > 0) {
+                    alert(`SENT ${result.sent} email(s)!\n\n${clientMsg}\n\n${serverMsg}`);
                     addNotification('success', 'Emails Sent!', `${result.sent} email(s) sent successfully`);
                   } else {
-                    // Show diagnostics in alert so user can see exactly what's happening
-                    const diagInfo = result.diagnostics?.map((d: any) => {
-                      if (d.step === 'supabase_query') return `Pending due: ${d.pending_due_count}\nAll recent: ${JSON.stringify(d.all_recent_emails?.map((e: any) => ({ status: e.status, email: e.lead_email, scheduled: e.scheduled_for })), null, 2)}`;
-                      if (d.step === 'env_check') return `Env: Supabase=${d.supabase_url}, ServiceKey=${d.service_role_key}, Instantly=${d.instantly_api_key}`;
-                      if (d.step === 'query_time') return `Server time: ${d.now}`;
-                      return JSON.stringify(d);
-                    }).join('\n\n') || 'No diagnostics';
-
-                    alert(`Server found 0 emails to send.\n\n${diagInfo}`);
+                    alert(`${clientMsg}\n\n${serverMsg}`);
                   }
 
-                  // Reload scheduled emails from Supabase
+                  // Reload scheduled emails
                   if (user) {
                     const { data } = await supabase
                       .from('scheduled_emails')
@@ -4206,12 +4226,8 @@ function CampaignsView({
                       setScheduledEmails(data.map((email: any) => ({
                         id: email.id,
                         lead: { id: email.lead_id, name: email.lead_name, email: email.lead_email, company: email.lead_company || '', role: email.lead_role || '', linkedin: '', status: 'verified' as const, score: 0 },
-                        subject: email.subject,
-                        body: email.body,
-                        scheduledFor: email.scheduled_for,
-                        senderName: email.sender_name,
-                        senderEmail: email.sender_email,
-                        createdAt: email.created_at,
+                        subject: email.subject, body: email.body, scheduledFor: email.scheduled_for,
+                        senderName: email.sender_name, senderEmail: email.sender_email, createdAt: email.created_at,
                       })));
                     }
                   }
