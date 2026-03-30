@@ -5644,9 +5644,20 @@ function EmailTrackingView({
     role: s.role,
   }));
 
-  // Filter logic
+  // Filter logic — funnel-based: "opened" includes clicked & replied, etc.
+  const statusMatchesFilter = (status: string, filter: string): boolean => {
+    if (filter === 'all') return true;
+    if (filter === 'bounced') return status === 'bounced';
+    // Funnel: delivered includes opened/clicked/replied, opened includes clicked/replied, etc.
+    const funnel = ['sent', 'delivered', 'opened', 'clicked', 'replied'];
+    const filterIndex = funnel.indexOf(filter);
+    const statusIndex = funnel.indexOf(status);
+    if (filterIndex === -1 || statusIndex === -1) return status === filter;
+    return statusIndex >= filterIndex;
+  };
+
   const filteredEmails = emailLogs.filter(log => {
-    if (activeStatusFilter !== 'all' && log.status !== activeStatusFilter) return false;
+    if (!statusMatchesFilter(log.status, activeStatusFilter)) return false;
     if (activeSenderFilter && (log.senderEmail || '').toLowerCase() !== activeSenderFilter.toLowerCase()) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
