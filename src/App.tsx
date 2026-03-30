@@ -6688,19 +6688,14 @@ export default function App() {
 
         const data = await response.json();
 
-        // If scheduling, add to scheduled emails with staggered send times
+        // If scheduling, add to scheduled emails at the selected time
         if (scheduleFor) {
-          // Calculate staggered send time (2-3 minute intervals to avoid spam filters)
-          const baseTime = new Date(scheduleFor);
-          const minutesDelay = 2 + Math.random(); // Random 2-3 minutes per email
-          const staggeredTime = new Date(baseTime.getTime() + (i * minutesDelay * 60 * 1000));
-
           const newScheduledEmail: ScheduledEmail = {
             id: crypto.randomUUID(),
             lead,
             subject: data.subject,
             body: data.body,
-            scheduledFor: staggeredTime.toISOString(),
+            scheduledFor: new Date(scheduleFor).toISOString(),
             senderName: sender.name,
             senderEmail: sender.email,
             createdAt: new Date().toISOString(),
@@ -6785,7 +6780,7 @@ export default function App() {
       addNotification(
         'success',
         'Emails Scheduled!',
-        `Generated and scheduled ${successCount} emails starting ${new Date(scheduleFor).toLocaleString()} (spread over 2-3 min intervals)${failCount > 0 ? ` • ${failCount} failed` : ''}. Server will auto-send at scheduled times.`,
+        `Generated and scheduled ${successCount} emails for ${new Date(scheduleFor).toLocaleString()}${failCount > 0 ? ` • ${failCount} failed` : ''}. Server will auto-send at scheduled time.`,
         'email'
       );
     } else {
