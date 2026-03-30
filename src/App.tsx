@@ -5625,7 +5625,7 @@ export default function App() {
 
         if (response.ok) {
           const result = await response.json();
-          console.log(`✅ Server response:`, result);
+          console.log(`✅ Server response:`, JSON.stringify(result, null, 2));
 
           if (result.sent > 0) {
             addNotification(
@@ -6638,6 +6638,7 @@ export default function App() {
 
           // Save to Supabase for server-side sending
           let savedToSupabase = false;
+          console.log('📝 Saving scheduled email - user:', user?.id || 'NO USER', '| lead:', lead.name, lead.email);
           if (user) {
             const insertPayload = {
               id: newScheduledEmail.id,
