@@ -3993,29 +3993,32 @@ function CampaignsView({
 
       // Also refresh email_logs from Supabase (so Recent Activity updates)
       if (user) {
-        const { data: logsData } = await supabase
+        const { data: logsData, error: logsError } = await supabase
           .from('email_logs')
-          .select(`
-            *,
-            leads:lead_id (name, email)
-          `)
+          .select('*')
           .eq('user_id', user.id)
           .order('sent_at', { ascending: false });
 
-        if (logsData && logsData.length > 0) {
-          setEmailLogs(logsData.map((log: any) => ({
-            id: log.id,
-            campaignId: log.campaign_id || '',
-            leadId: log.lead_id,
-            leadName: (log.leads as any)?.name || log.lead_name || '',
-            leadEmail: (log.leads as any)?.email || log.lead_email || '',
-            sentAt: log.sent_at,
-            status: log.status as any,
-            subject: log.subject,
-            body: log.body,
-            senderName: log.sender_name,
-            senderEmail: log.sender_email,
-          })));
+        if (logsError) {
+          console.error('Failed to fetch email_logs:', logsError.message);
+        } else if (logsData && logsData.length > 0) {
+          setEmailLogs(logsData.map((log: any) => {
+            // Look up lead name from allLeads if not stored in email_logs
+            const lead = allLeads.find(l => l.id === log.lead_id);
+            return {
+              id: log.id,
+              campaignId: log.campaign_id || '',
+              leadId: log.lead_id,
+              leadName: log.lead_name || lead?.name || '',
+              leadEmail: log.lead_email || lead?.email || '',
+              sentAt: log.sent_at,
+              status: log.status as any,
+              subject: log.subject,
+              body: log.body,
+              senderName: log.sender_name,
+              senderEmail: log.sender_email,
+            };
+          }));
         }
       }
 
@@ -5669,29 +5672,37 @@ function EmailTrackingView({
     setIsRefreshing(true);
     try {
       if (user) {
-        const { data: logsData } = await supabase
+        const { data: logsData, error: logsError } = await supabase
           .from('email_logs')
-          .select(`*, leads:lead_id (name, email)`)
+          .select('*')
           .eq('user_id', user.id)
           .order('sent_at', { ascending: false });
 
-        if (logsData && logsData.length > 0) {
-          setEmailLogs(logsData.map((log: any) => ({
-            id: log.id,
-            campaignId: log.campaign_id || '',
-            leadId: log.lead_id,
-            leadName: (log.leads as any)?.name || log.lead_name || '',
-            leadEmail: (log.leads as any)?.email || log.lead_email || '',
-            sentAt: log.sent_at,
-            status: log.status as any,
-            subject: log.subject,
-            body: log.body,
-            senderName: log.sender_name,
-            senderEmail: log.sender_email,
-          })));
+        if (logsError) {
+          console.error('Failed to fetch email_logs:', logsError.message);
+          addNotification('error', 'Fetch Failed', logsError.message);
+        } else if (logsData && logsData.length > 0) {
+          setEmailLogs(logsData.map((log: any) => {
+            const lead = allLeads.find(l => l.id === log.lead_id);
+            return {
+              id: log.id,
+              campaignId: log.campaign_id || '',
+              leadId: log.lead_id,
+              leadName: log.lead_name || lead?.name || '',
+              leadEmail: log.lead_email || lead?.email || '',
+              sentAt: log.sent_at,
+              status: log.status as any,
+              subject: log.subject,
+              body: log.body,
+              senderName: log.sender_name,
+              senderEmail: log.sender_email,
+            };
+          }));
+          addNotification('success', 'Tracking Updated', `Loaded ${logsData.length} emails`);
+        } else {
+          addNotification('info', 'No Emails', 'No email logs found in database');
         }
       }
-      addNotification('success', 'Tracking Updated', 'Email tracking data refreshed');
     } catch (error) {
       console.error('Failed to refresh tracking:', error);
     } finally {

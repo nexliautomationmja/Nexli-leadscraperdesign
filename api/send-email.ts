@@ -234,6 +234,8 @@ async function handleScheduledEmails(res: VercelResponse) {
           user_id: email.user_id,
           campaign_id: null,
           lead_id: email.lead_id,
+          lead_name: email.lead_name || '',
+          lead_email: email.lead_email,
           subject: email.subject,
           body: email.body,
           status: 'sent',
@@ -246,7 +248,7 @@ async function handleScheduledEmails(res: VercelResponse) {
         let emailLogStatus = 'saved';
         if (logError) {
           console.error('Failed to insert email_log:', logError.message);
-          // Try without resend_id column in case migration hasn't run
+          // Try without newer columns in case migration hasn't run
           const { error: fallbackError } = await supabase.from('email_logs').insert({
             user_id: email.user_id,
             campaign_id: null,
@@ -260,7 +262,7 @@ async function handleScheduledEmails(res: VercelResponse) {
           });
           emailLogStatus = fallbackError
             ? `both_failed: ${logError.message} / ${fallbackError.message}`
-            : 'saved_without_resend_id';
+            : 'saved_without_lead_info';
         }
 
         results.push({
