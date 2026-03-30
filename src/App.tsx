@@ -3991,8 +3991,23 @@ function CampaignsView({
   };
 
   // Scheduled email management functions
-  const handleCancelScheduledEmail = (emailId: string) => {
+  const handleCancelScheduledEmail = async (emailId: string) => {
     if (confirm('Are you sure you want to cancel this scheduled email?')) {
+      // Delete from Supabase so it doesn't come back on refresh
+      const { error } = await supabase
+        .from('scheduled_emails')
+        .delete()
+        .eq('id', emailId);
+
+      if (error) {
+        console.error('Failed to delete scheduled email from Supabase:', error);
+        // Try updating status instead (in case delete policy is missing)
+        await supabase
+          .from('scheduled_emails')
+          .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+          .eq('id', emailId);
+      }
+
       setScheduledEmails((prev) => prev.filter((e) => e.id !== emailId));
       addNotification('success', 'Email Cancelled', 'Scheduled email has been cancelled', 'email');
     }
