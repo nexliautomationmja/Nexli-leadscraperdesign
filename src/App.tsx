@@ -1037,7 +1037,7 @@ const EmailGenerationModal = ({
                               type="datetime-local"
                               value={scheduledDateTime}
                               onChange={(e) => setScheduledDateTime(e.target.value)}
-                              min={new Date().toISOString().slice(0, 16)}
+                              min={(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}T${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`; })()}
                               className="w-full px-4 py-3 rounded-lg text-sm font-medium outline-none border-2 transition-all"
                               style={{
                                 background: 'var(--bg-elevated)',
@@ -5310,7 +5310,7 @@ function CampaignsView({
                   type="datetime-local"
                   defaultValue={new Date(selectedScheduledEmail.scheduledFor).toISOString().slice(0, 16)}
                   id="edit-schedule-time"
-                  min={new Date().toISOString().slice(0, 16)}
+                  min={(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}T${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`; })()}
                   className="w-full px-4 py-3 rounded-lg border-2 transition-all"
                   style={{
                     background: 'var(--bg-elevated)',
@@ -7915,7 +7915,7 @@ export default function App() {
                           type="datetime-local"
                           value={bulkScheduleDateTime}
                           onChange={(e) => setBulkScheduleDateTime(e.target.value)}
-                          min={new Date().toISOString().slice(0, 16)}
+                          min={(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}T${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`; })()}
                           className="w-full px-4 py-3 rounded-lg border-2 transition-all"
                           style={{
                             background: 'var(--bg-elevated)',
