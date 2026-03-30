@@ -1768,7 +1768,40 @@ const PerformanceTracker = () => {
         }
 
         const data = await response.json();
-        setVariations(data.variations || []);
+
+        // Transform sender metrics into variation format for the tracker
+        if (data.senders) {
+          const senderConfig: Record<string, { name: string; icon: string; color: string; bgColor: string }> = {
+            marcel: { name: 'Marcel — Founder', icon: '👔', color: '#2563EB', bgColor: 'rgba(37, 99, 235, 0.08)' },
+            justine: { name: 'Justine — COO', icon: '💼', color: '#8B5CF6', bgColor: 'rgba(139, 92, 246, 0.08)' },
+            bernice: { name: 'Bernice — Client Success', icon: '🤝', color: '#EC4899', bgColor: 'rgba(236, 72, 153, 0.08)' },
+            jian: { name: 'Jian — CTO', icon: '⚡', color: '#10B981', bgColor: 'rgba(16, 185, 129, 0.08)' },
+          };
+
+          const transformed = Object.entries(data.senders).map(([key, metrics]: [string, any]) => {
+            const config = senderConfig[key] || { name: key, icon: '📧', color: '#6B7280', bgColor: 'rgba(107, 114, 128, 0.08)' };
+            const sent = metrics.sent || 0;
+            const opens = metrics.opened || 0;
+            const replies = metrics.replied || 0;
+            return {
+              id: key,
+              name: config.name,
+              icon: config.icon,
+              color: config.color,
+              bgColor: config.bgColor,
+              sent,
+              opens,
+              replies,
+              positiveReplies: replies,
+              openRate: sent > 0 ? (opens / sent) * 100 : 0,
+              replyRate: sent > 0 ? (replies / sent) * 100 : 0,
+              positiveReplyRate: sent > 0 ? (replies / sent) * 100 : 0,
+            };
+          });
+          setVariations(transformed);
+        } else {
+          setVariations([]);
+        }
         setLastUpdated(data.lastUpdated || new Date().toISOString());
         setError('');
       } catch (err: any) {
@@ -1835,7 +1868,7 @@ const PerformanceTracker = () => {
   ) : null;
 
   const minSendsForSignificance = 50;
-  const hasEnoughData = variations.every((v) => v.sent >= minSendsForSignificance);
+  const hasEnoughData = variations.length > 0 && variations.every((v) => v.sent >= minSendsForSignificance);
 
   if (loading) {
     return (
@@ -1856,7 +1889,7 @@ const PerformanceTracker = () => {
             Email Performance Tracker
           </h3>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            A/B testing 3 email variations • {hasEnoughData ? '✅ Statistically significant' : `⏳ Need ${minSendsForSignificance}+ sends per variation`}
+            Tracking 4 sender personas • {hasEnoughData ? '✅ Statistically significant' : `⏳ Need ${minSendsForSignificance}+ sends per sender`}
           </p>
         </div>
         {hasEnoughData && (
@@ -1869,9 +1902,9 @@ const PerformanceTracker = () => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {variations.map((variation) => {
-          const isWinner = hasEnoughData && variation.id === winner.id;
+          const isWinner = hasEnoughData && winner && variation.id === winner.id;
 
           return (
             <div
@@ -3840,6 +3873,7 @@ function CampaignsView({
   addNotification,
   senderMetricsData,
   setSenderMetricsData,
+  user,
 }: {
   isDark: boolean;
   campaigns: Campaign[];
@@ -3855,6 +3889,7 @@ function CampaignsView({
   addNotification: (type: 'success' | 'info' | 'warning' | 'error', title: string, message: string, icon?: 'lead' | 'email' | 'campaign' | 'reply' | 'error') => void;
   senderMetricsData: Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>;
   setSenderMetricsData: React.Dispatch<React.SetStateAction<Record<string, { sent: number; opened: number; clicked: number; replied: number; bounced: number }>>>;
+  user: any;
 }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
@@ -7944,6 +7979,7 @@ export default function App() {
                   addNotification={addNotification}
                   senderMetricsData={senderMetricsData}
                   setSenderMetricsData={setSenderMetricsData}
+                  user={user}
                 />
               )}
 
