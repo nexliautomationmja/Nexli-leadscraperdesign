@@ -4,13 +4,84 @@ import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Sender display names
-const SENDER_NAMES: Record<string, string> = {
-  'marcel@nexlioutreach.net': 'Marcel',
-  'justine@nexlioutreach.net': 'Justine',
-  'bernice@nexlioutreach.net': 'Bernice',
-  'jian@nexlioutreach.net': 'Jian',
+// Sender metadata
+const SENDERS: Record<string, { name: string; role: string; photo: string | null }> = {
+  'marcel@nexlioutreach.net': { name: 'Marcel Allen', role: 'Founder & CEO', photo: 'marcel.png' },
+  'justine@nexlioutreach.net': { name: 'Justine', role: 'COO', photo: 'justine.png' },
+  'bernice@nexlioutreach.net': { name: 'Bernice', role: 'Client Success Manager', photo: 'bernice.png' },
+  'jian@nexlioutreach.net': { name: 'Jian', role: 'CTO', photo: 'jian.png' },
 };
+
+const BASE_URL = 'https://leadscraper.nexli.net';
+
+// Wrap plain text email body in branded HTML template
+function wrapInTemplate(body: string, senderEmail: string): string {
+  const sender = SENDERS[senderEmail.toLowerCase()];
+  const senderName = sender?.name || 'Nexli';
+  const senderRole = sender?.role || '';
+  const firstName = senderName.split(' ')[0];
+
+  // Convert plain text to HTML paragraphs
+  const htmlBody = body
+    .split(/\n\n+/)
+    .map(p => p.trim())
+    .filter(p => p.length > 0)
+    .map(p => `<p style="color: #d1d5db; font-size: 15px; line-height: 1.7; margin: 0 0 20px 0;">${p.replace(/\n/g, '<br>')}</p>`)
+    .join('\n              ');
+
+  // Sender avatar: photo or initial circle
+  const avatarHtml = sender?.photo
+    ? `<img src="${BASE_URL}/sender-photos/${sender.photo}" alt="${firstName}" width="44" height="44" style="border-radius: 50%; display: block;" />`
+    : `<div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #2563EB, #06B6D4); text-align: center; line-height: 44px; color: white; font-size: 18px; font-weight: 600;">${firstName.charAt(0)}</div>`;
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding: 24px;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
+        <!-- Header -->
+        <tr><td style="background-color: #111827; border-radius: 12px 12px 0 0; padding: 24px 32px;">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="vertical-align: middle;">
+              <img src="${BASE_URL}/favicon.svg" alt="Nexli" width="32" height="32" style="display: block;" />
+            </td>
+            <td style="vertical-align: middle; padding-left: 10px;">
+              <span style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: 1px;">NEXLI</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <!-- Gradient line -->
+        <tr><td style="height: 3px; background: linear-gradient(to right, #2563EB, #06B6D4); font-size: 0; line-height: 0;">&nbsp;</td></tr>
+        <!-- Body -->
+        <tr><td style="background-color: #1a1f2e; padding: 36px 32px;">
+              ${htmlBody}
+              <!-- Signature divider -->
+              <div style="border-top: 1px solid #2d3548; margin: 8px 0 24px 0;"></div>
+              <!-- Sender signature -->
+              <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+                <td style="vertical-align: top; padding-right: 14px;">
+                  ${avatarHtml}
+                </td>
+                <td style="vertical-align: top;">
+                  <p style="color: #ffffff; font-size: 15px; font-weight: 600; margin: 0 0 2px 0;">${senderName}</p>
+                  <p style="color: #9ca3af; font-size: 13px; margin: 0 0 2px 0;">${senderRole}</p>
+                  <p style="color: #60a5fa; font-size: 13px; margin: 0;">nexli.net</p>
+                </td>
+              </tr></table>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="background-color: #111827; border-radius: 0 0 12px 12px; padding: 20px 32px; text-align: center;">
+          <p style="color: #6b7280; font-size: 11px; margin: 0 0 4px 0;">NEXLI Outreach &bull; Automated Lead Intelligence</p>
+          <p style="color: #4b5563; font-size: 11px; margin: 0;">You're receiving this because your profile matched our outreach criteria.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
 
 // Initialize Supabase client with service role key
 const supabase = createClient(
@@ -25,18 +96,22 @@ async function sendViaResend(params: {
   body: string;
   senderEmail: string;
 }): Promise<{ id: string }> {
-  const senderName = SENDER_NAMES[params.senderEmail.toLowerCase()] || 'Nexli';
+  const sender = SENDERS[params.senderEmail.toLowerCase()];
+  const senderName = sender?.name.split(' ')[0] || 'Nexli';
 
   // Capitalize first letter of subject (unless it starts with a number)
   const subject = params.subject && /^[a-z]/.test(params.subject)
     ? params.subject.charAt(0).toUpperCase() + params.subject.slice(1)
     : params.subject;
 
+  // Wrap plain text body in branded HTML template
+  const html = wrapInTemplate(params.body, params.senderEmail);
+
   const { data, error } = await resend.emails.send({
     from: `${senderName} <${params.senderEmail.toLowerCase()}>`,
     to: [params.to],
     subject,
-    html: params.body,
+    html,
   });
 
   if (error) {
