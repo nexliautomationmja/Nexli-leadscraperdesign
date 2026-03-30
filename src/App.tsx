@@ -4168,6 +4168,63 @@ function CampaignsView({
               <Clock className="w-5 h-5 text-amber-500" />
               Scheduled Emails ({scheduledEmails.length})
             </h2>
+            <button
+              onClick={async () => {
+                try {
+                  addNotification('info', 'Checking...', 'Triggering server to check and send scheduled emails...');
+                  const response = await fetch('/api/send-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ checkScheduled: true }),
+                  });
+                  const result = await response.json();
+                  console.log('Manual check result:', JSON.stringify(result, null, 2));
+
+                  if (result.sent > 0) {
+                    addNotification('success', 'Emails Sent!', `${result.sent} email(s) sent successfully`);
+                  } else {
+                    // Show diagnostics in alert so user can see exactly what's happening
+                    const diagInfo = result.diagnostics?.map((d: any) => {
+                      if (d.step === 'supabase_query') return `Pending due: ${d.pending_due_count}\nAll recent: ${JSON.stringify(d.all_recent_emails?.map((e: any) => ({ status: e.status, email: e.lead_email, scheduled: e.scheduled_for })), null, 2)}`;
+                      if (d.step === 'env_check') return `Env: Supabase=${d.supabase_url}, ServiceKey=${d.service_role_key}, Instantly=${d.instantly_api_key}`;
+                      if (d.step === 'query_time') return `Server time: ${d.now}`;
+                      return JSON.stringify(d);
+                    }).join('\n\n') || 'No diagnostics';
+
+                    alert(`Server found 0 emails to send.\n\n${diagInfo}`);
+                  }
+
+                  // Reload scheduled emails from Supabase
+                  if (user) {
+                    const { data } = await supabase
+                      .from('scheduled_emails')
+                      .select('*')
+                      .eq('user_id', user.id)
+                      .eq('status', 'pending')
+                      .order('scheduled_for', { ascending: true });
+                    if (data) {
+                      setScheduledEmails(data.map((email: any) => ({
+                        id: email.id,
+                        lead: { id: email.lead_id, name: email.lead_name, email: email.lead_email, company: email.lead_company || '', role: email.lead_role || '', linkedin: '', status: 'verified' as const, score: 0 },
+                        subject: email.subject,
+                        body: email.body,
+                        scheduledFor: email.scheduled_for,
+                        senderName: email.sender_name,
+                        senderEmail: email.sender_email,
+                        createdAt: email.created_at,
+                      })));
+                    }
+                  }
+                } catch (error: any) {
+                  alert(`Error: ${error.message}`);
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-all hover:shadow-md"
+              style={{ borderColor: '#F59E0B', color: '#F59E0B', background: 'rgba(245, 158, 11, 0.08)' }}
+            >
+              <Send className="w-3 h-3" />
+              Check & Send Now
+            </button>
           </div>
 
           <div className="overflow-x-auto">
