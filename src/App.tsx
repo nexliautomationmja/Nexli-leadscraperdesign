@@ -4022,7 +4022,7 @@ function CampaignsView({
             Email Campaigns
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            Manage bulk email outreach and track Justine's progress
+            Manage bulk email outreach and track sender performance
             {lastRefreshed && (
               <span className="ml-2 text-xs">
                 • Last updated {lastRefreshed.toLocaleTimeString()}
@@ -6637,32 +6637,55 @@ export default function App() {
           };
 
           // Save to Supabase for server-side sending
+          let savedToSupabase = false;
           if (user) {
-            const { error: insertError } = await supabase.from('scheduled_emails').insert({
+            const insertPayload = {
               id: newScheduledEmail.id,
               user_id: user.id,
               lead_id: lead.id,
               lead_name: lead.name,
               lead_email: lead.email,
-              lead_company: lead.company,
-              lead_role: lead.role,
+              lead_company: lead.company || '',
+              lead_role: lead.role || '',
               subject: newScheduledEmail.subject,
               body: newScheduledEmail.body,
               scheduled_for: newScheduledEmail.scheduledFor,
               sender_name: newScheduledEmail.senderName,
               sender_email: newScheduledEmail.senderEmail,
               status: 'pending',
-            });
+            };
+            console.log('Inserting scheduled email to Supabase:', JSON.stringify(insertPayload, null, 2));
+
+            const { error: insertError } = await supabase.from('scheduled_emails').insert(insertPayload);
+
             if (insertError) {
-              console.error('Failed to save scheduled email to Supabase:', insertError);
-              addNotification('error', 'Schedule Error', `Failed to save scheduled email for ${lead.name}: ${insertError.message}`);
+              console.error('Supabase insert error:', insertError);
+              addNotification('error', 'Schedule Save Failed', `Could not save to database for ${lead.name}: ${insertError.message}. Email will NOT be sent by cron.`);
+            } else {
+              // Verify the email was actually saved
+              const { data: verify, error: verifyError } = await supabase
+                .from('scheduled_emails')
+                .select('id, status')
+                .eq('id', newScheduledEmail.id)
+                .single();
+
+              if (verifyError || !verify) {
+                console.error('Supabase verify failed:', verifyError);
+                addNotification('error', 'Schedule Save Failed', `Email for ${lead.name} did not save to database. Check Supabase RLS policies.`);
+              } else {
+                console.log('Verified scheduled email saved:', verify.id, verify.status);
+                savedToSupabase = true;
+              }
             }
           } else {
             console.error('No user session - cannot save scheduled email to Supabase');
             addNotification('error', 'Not Logged In', 'Please log in to schedule emails');
           }
 
-          setScheduledEmails(prev => [...prev, newScheduledEmail]);
+          // Only add to local state if saved to Supabase (otherwise cron won't find it)
+          if (savedToSupabase) {
+            setScheduledEmails(prev => [...prev, newScheduledEmail]);
+          }
         }
 
         successCount++;
@@ -6687,11 +6710,11 @@ export default function App() {
     setSenderRotationIndex((senderRotationIndex + leadsToGenerate.length) % SENDER_PERSONAS.length);
 
     if (scheduleFor) {
-      const estimatedEndTime = new Date(new Date(scheduleFor).getTime() + (successCount * 2.5 * 60 * 1000));
+      const savedCount = scheduledEmails.length; // Compare with previous length to see how many actually saved
       addNotification(
         'success',
         'Emails Scheduled!',
-        `Generated and scheduled ${successCount} emails starting ${new Date(scheduleFor).toLocaleString()} (spread over 2-3 min intervals)${failCount > 0 ? ` • ${failCount} failed` : ''}. Any overdue emails will send automatically when you next open the page.`,
+        `Generated and scheduled ${successCount} emails starting ${new Date(scheduleFor).toLocaleString()} (spread over 2-3 min intervals)${failCount > 0 ? ` • ${failCount} failed` : ''}. Server will auto-send at scheduled times.`,
         'email'
       );
     } else {
