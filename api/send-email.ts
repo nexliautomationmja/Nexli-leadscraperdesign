@@ -188,14 +188,6 @@ async function handleScheduledEmails(res: VercelResponse) {
           senderEmail: email.sender_email || 'justine@nexlioutreach.net',
         });
 
-        results.push({
-          lead: email.lead_email,
-          sender: email.sender_email,
-          campaign: getCampaignForSender(email.sender_email || 'justine@nexlioutreach.net'),
-          status: 'success',
-          instantly_response: instantlyResult,
-        });
-
         await supabase
           .from('scheduled_emails')
           .update({
@@ -216,10 +208,11 @@ async function handleScheduledEmails(res: VercelResponse) {
           sender_name: email.sender_name,
           sender_email: email.sender_email,
         });
+        let emailLogStatus = 'saved_with_sender';
         if (logError) {
           console.error('Failed to insert email_log:', logError.message);
           // Try without sender columns in case they don't exist yet
-          await supabase.from('email_logs').insert({
+          const { error: fallbackError } = await supabase.from('email_logs').insert({
             user_id: email.user_id,
             campaign_id: null,
             lead_id: email.lead_id,
@@ -228,7 +221,19 @@ async function handleScheduledEmails(res: VercelResponse) {
             status: 'sent',
             sent_at: new Date().toISOString(),
           });
+          emailLogStatus = fallbackError
+            ? `both_failed: ${logError.message} / ${fallbackError.message}`
+            : 'saved_without_sender';
         }
+
+        results.push({
+          lead: email.lead_email,
+          sender: email.sender_email,
+          campaign: getCampaignForSender(email.sender_email || 'justine@nexlioutreach.net'),
+          status: 'success',
+          instantly_response: instantlyResult,
+          email_log: emailLogStatus,
+        });
 
         sentCount++;
       } catch (error: any) {

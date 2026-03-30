@@ -4077,7 +4077,7 @@ function CampaignsView({
         <div className="flex items-center gap-3">
           <button
             onClick={refreshAllMetrics}
-            disabled={isRefreshing || campaigns.length === 0}
+            disabled={isRefreshing}
             className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md"
             style={{
               borderColor: 'var(--border-color)',
@@ -4406,7 +4406,7 @@ function CampaignsView({
             </span>
             <button
               onClick={refreshAllMetrics}
-              disabled={isRefreshing || campaigns.length === 0}
+              disabled={isRefreshing}
               className="text-xs font-medium flex items-center gap-1 hover:opacity-100 transition-opacity disabled:opacity-30"
               style={{ color: 'var(--text-muted)' }}
             >
