@@ -42,15 +42,17 @@ function wrapInTemplate(body: string, senderEmail: string): string {
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
         <!-- Header -->
-        <tr><td style="background-color: #000000; border-radius: 12px 12px 0 0; padding: 24px 32px;">
-          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-            <td style="vertical-align: middle;">
-              <img src="${BASE_URL}/favicon.svg" alt="Nexli" width="32" height="32" style="display: block;" />
-            </td>
-            <td style="vertical-align: middle; padding-left: 10px;">
-              <span style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: 1px;">NEXLI</span>
-            </td>
-          </tr></table>
+        <tr><td style="background-color: #000000; border-radius: 12px 12px 0 0; padding: 24px 32px; text-align: center;">
+          <a href="https://www.nexli.net" style="text-decoration: none; display: inline-block;">
+            <table role="presentation" cellpadding="0" cellspacing="0" style="display: inline-table;"><tr>
+              <td style="vertical-align: middle;">
+                <img src="${BASE_URL}/favicon.svg" alt="Nexli" width="32" height="32" style="display: block;" />
+              </td>
+              <td style="vertical-align: middle; padding-left: 10px;">
+                <span style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: 1px;">NEXLI</span>
+              </td>
+            </tr></table>
+          </a>
         </td></tr>
         <!-- Gradient line -->
         <tr><td style="height: 3px; background: linear-gradient(to right, #2563EB, #06B6D4); font-size: 0; line-height: 0;">&nbsp;</td></tr>
@@ -67,7 +69,7 @@ function wrapInTemplate(body: string, senderEmail: string): string {
                 <td style="vertical-align: top;">
                   <p style="color: #ffffff; font-size: 15px; font-weight: 600; margin: 0 0 2px 0;">${senderName}</p>
                   <p style="color: #9ca3af; font-size: 13px; margin: 0 0 2px 0;">${senderRole}</p>
-                  <p style="margin: 0;"><a href="https://www.nexli.net/rainmaker" style="color: #60a5fa; font-size: 13px; text-decoration: none;">nexli.net</a></p>
+                  <p style="margin: 0;"><a href="https://www.nexli.net/rainmaker" style="color: #60a5fa; font-size: 13px; text-decoration: none;">nexli.net/rainmaker</a></p>
                 </td>
               </tr></table>
         </td></tr>

@@ -44,6 +44,7 @@ import {
   LogOut,
   Camera,
   Check,
+  Activity,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { Auth } from './components/Auth';
@@ -1433,6 +1434,7 @@ const Sidebar = ({
     { id: 'scraper', label: 'Lead Scraper', icon: Search },
     { id: 'leads', label: 'My Leads', icon: Users },
     { id: 'campaigns', label: 'Email Campaigns', icon: Mail },
+    { id: 'tracking', label: 'Email Tracking', icon: Activity },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -5598,6 +5600,711 @@ function CampaignsView({
   );
 }
 
+// --- Email Tracking View ---
+function EmailTrackingView({
+  isDark,
+  emailLogs,
+  setEmailLogs,
+  allLeads,
+  user,
+  addNotification,
+}: {
+  isDark: boolean;
+  emailLogs: EmailLog[];
+  setEmailLogs: React.Dispatch<React.SetStateAction<EmailLog[]>>;
+  allLeads: Lead[];
+  user: any;
+  addNotification: (type: string, title: string, message: string) => void;
+}) {
+  const [activeStatusFilter, setActiveStatusFilter] = useState<string>('all');
+  const [activeSenderFilter, setActiveSenderFilter] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedEmail, setSelectedEmail] = useState<EmailLog | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showBouncedOnly, setShowBouncedOnly] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+
+  const statusTabs = [
+    { id: 'all', label: 'All Emails', icon: Mail },
+    { id: 'delivered', label: 'Delivered', icon: CheckCircle2 },
+    { id: 'opened', label: 'Opened', icon: Eye },
+    { id: 'clicked', label: 'Clicked', icon: MousePointer },
+    { id: 'replied', label: 'Replied', icon: Reply },
+    { id: 'bounced', label: 'Bounced', icon: AlertCircle },
+  ];
+
+  const senderChips = SENDER_EMAILS.map(s => ({
+    name: s.name,
+    email: s.email,
+    color: s.color,
+    photo: s.photo,
+    role: s.role,
+  }));
+
+  // Filter logic
+  const filteredEmails = emailLogs.filter(log => {
+    if (activeStatusFilter !== 'all' && log.status !== activeStatusFilter) return false;
+    if (activeSenderFilter && (log.senderEmail || '').toLowerCase() !== activeSenderFilter.toLowerCase()) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const matchesName = (log.leadName || '').toLowerCase().includes(q);
+      const matchesEmail = (log.leadEmail || '').toLowerCase().includes(q);
+      const matchesSubject = (log.subject || '').toLowerCase().includes(q);
+      if (!matchesName && !matchesEmail && !matchesSubject) return false;
+    }
+    return true;
+  });
+
+  const bouncedEmails = emailLogs.filter(log => log.status === 'bounced');
+
+  // Stats
+  const totalSent = emailLogs.length;
+  const totalDelivered = emailLogs.filter(l => ['delivered', 'opened', 'clicked', 'replied'].includes(l.status)).length;
+  const totalOpened = emailLogs.filter(l => ['opened', 'clicked', 'replied'].includes(l.status)).length;
+  const totalClicked = emailLogs.filter(l => ['clicked', 'replied'].includes(l.status)).length;
+  const totalBounced = emailLogs.filter(l => l.status === 'bounced').length;
+  const totalReplied = emailLogs.filter(l => l.status === 'replied').length;
+
+  const refreshTracking = async () => {
+    setIsRefreshing(true);
+    try {
+      if (user) {
+        const { data: logsData } = await supabase
+          .from('email_logs')
+          .select(`*, leads:lead_id (name, email)`)
+          .eq('user_id', user.id)
+          .order('sent_at', { ascending: false });
+
+        if (logsData && logsData.length > 0) {
+          setEmailLogs(logsData.map((log: any) => ({
+            id: log.id,
+            campaignId: log.campaign_id || '',
+            leadId: log.lead_id,
+            leadName: (log.leads as any)?.name || log.lead_name || '',
+            leadEmail: (log.leads as any)?.email || log.lead_email || '',
+            sentAt: log.sent_at,
+            status: log.status as any,
+            subject: log.subject,
+            body: log.body,
+            senderName: log.sender_name,
+            senderEmail: log.sender_email,
+          })));
+        }
+      }
+      addNotification('success', 'Tracking Updated', 'Email tracking data refreshed');
+    } catch (error) {
+      console.error('Failed to refresh tracking:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleRetryEmail = async (log: EmailLog) => {
+    setRetryingId(log.id);
+    try {
+      const response = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: log.leadEmail,
+          subject: log.subject,
+          body: log.body || '',
+          fromEmail: log.senderEmail || 'justine@nexlioutreach.net',
+        }),
+      });
+      if (response.ok) {
+        addNotification('success', 'Email Retried', `Re-sent email to ${log.leadName}`);
+        await refreshTracking();
+      } else {
+        const err = await response.json();
+        addNotification('error', 'Retry Failed', err.error || 'Failed to resend');
+      }
+    } catch (error: any) {
+      addNotification('error', 'Retry Failed', error.message);
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  const handleRemoveLead = async (log: EmailLog) => {
+    if (!confirm(`Remove ${log.leadName} (${log.leadEmail}) from future campaigns? This will delete the bounced log entry.`)) return;
+    try {
+      if (user) {
+        await supabase.from('email_logs').delete().eq('id', log.id);
+      }
+      setEmailLogs(prev => prev.filter(l => l.id !== log.id));
+      addNotification('info', 'Lead Removed', `${log.leadName} removed from tracking`);
+    } catch (error: any) {
+      addNotification('error', 'Remove Failed', error.message);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'sent': return { bg: 'rgba(59, 130, 246, 0.15)', text: '#3B82F6' };
+      case 'delivered': return { bg: 'rgba(6, 182, 212, 0.15)', text: '#06B6D4' };
+      case 'opened': return { bg: 'rgba(139, 92, 246, 0.15)', text: '#8B5CF6' };
+      case 'clicked': return { bg: 'rgba(245, 158, 11, 0.15)', text: '#F59E0B' };
+      case 'replied': return { bg: 'rgba(16, 185, 129, 0.15)', text: '#10B981' };
+      case 'bounced': return { bg: 'rgba(239, 68, 68, 0.15)', text: '#EF4444' };
+      default: return { bg: 'rgba(107, 114, 128, 0.15)', text: '#6B7280' };
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-extrabold flex items-center gap-3">
+            <div className="p-2 rounded-xl" style={{ background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.15), rgba(6, 182, 212, 0.15))' }}>
+              <BarChart3 className="w-6 h-6" style={{ color: '#2563EB' }} />
+            </div>
+            Email Tracking
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+            Real-time delivery tracking powered by Resend webhooks
+          </p>
+        </div>
+        <button
+          onClick={refreshTracking}
+          disabled={isRefreshing}
+          className="nexli-btn-gradient px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg disabled:opacity-50"
+        >
+          <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
+          {isRefreshing ? 'Refreshing...' : 'Refresh Tracking'}
+        </button>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {[
+          { label: 'Total Sent', value: totalSent, color: '#3B82F6', icon: Send },
+          { label: 'Delivered', value: totalDelivered, pct: totalSent > 0 ? ((totalDelivered / totalSent) * 100).toFixed(1) : '0', color: '#06B6D4', icon: CheckCircle2 },
+          { label: 'Opened', value: totalOpened, pct: totalSent > 0 ? ((totalOpened / totalSent) * 100).toFixed(1) : '0', color: '#8B5CF6', icon: Eye },
+          { label: 'Clicked', value: totalClicked, pct: totalOpened > 0 ? ((totalClicked / totalOpened) * 100).toFixed(1) : '0', color: '#F59E0B', icon: MousePointer },
+          { label: 'Replied', value: totalReplied, pct: totalSent > 0 ? ((totalReplied / totalSent) * 100).toFixed(1) : '0', color: '#10B981', icon: Reply },
+          { label: 'Bounced', value: totalBounced, pct: totalSent > 0 ? ((totalBounced / totalSent) * 100).toFixed(1) : '0', color: '#EF4444', icon: AlertCircle },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className="glass-card p-4 rounded-2xl"
+            style={{ borderLeft: `3px solid ${stat.color}` }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <stat.icon className="w-4 h-4" style={{ color: stat.color }} />
+              <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{stat.label}</span>
+            </div>
+            <p className="text-2xl font-extrabold" style={{ color: stat.color }}>{stat.value}</p>
+            {stat.pct !== undefined && (
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{stat.pct}%</p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Sender Filter Chips */}
+      <div className="glass-card p-4 rounded-2xl">
+        <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>Filter by Sender</p>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => setActiveSenderFilter(null)}
+            className={cn(
+              'px-4 py-2 rounded-full text-sm font-bold transition-all duration-200 flex items-center gap-2',
+              !activeSenderFilter && 'ring-2'
+            )}
+            style={{
+              background: !activeSenderFilter ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(6, 182, 212, 0.2))' : 'var(--bg-elevated)',
+              color: !activeSenderFilter ? '#2563EB' : 'var(--text-secondary)',
+              ringColor: !activeSenderFilter ? '#2563EB' : undefined,
+            }}
+          >
+            <Users className="w-4 h-4" />
+            All Senders
+          </button>
+          {senderChips.map((sender) => {
+            const isActive = activeSenderFilter?.toLowerCase() === sender.email.toLowerCase();
+            const senderLogCount = emailLogs.filter(l => (l.senderEmail || '').toLowerCase() === sender.email.toLowerCase()).length;
+            return (
+              <button
+                key={sender.email}
+                onClick={() => setActiveSenderFilter(isActive ? null : sender.email)}
+                className={cn(
+                  'px-3 py-2 rounded-full text-sm font-bold transition-all duration-200 flex items-center gap-2',
+                  isActive && 'ring-2'
+                )}
+                style={{
+                  background: isActive ? `${sender.color}20` : 'var(--bg-elevated)',
+                  color: isActive ? sender.color : 'var(--text-secondary)',
+                  ringColor: isActive ? sender.color : undefined,
+                }}
+              >
+                <img
+                  src={sender.photo}
+                  alt={sender.name}
+                  className="w-6 h-6 rounded-full object-cover"
+                  style={{ border: `2px solid ${sender.color}` }}
+                />
+                {sender.name}
+                <span
+                  className="text-xs px-1.5 py-0.5 rounded-full"
+                  style={{ background: `${sender.color}15`, color: sender.color }}
+                >
+                  {senderLogCount}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Status Tabs + Search */}
+      <div className="glass-card p-4 rounded-2xl">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4">
+          {/* Status tabs */}
+          <div className="flex flex-wrap gap-1">
+            {statusTabs.map((tab) => {
+              const isActive = activeStatusFilter === tab.id;
+              const tabColor = tab.id === 'all' ? '#2563EB' : getStatusColor(tab.id).text;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveStatusFilter(tab.id)}
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5'
+                  )}
+                  style={{
+                    background: isActive ? `${tabColor}20` : 'transparent',
+                    color: isActive ? tabColor : 'var(--text-muted)',
+                  }}
+                >
+                  <tab.icon className="w-3.5 h-3.5" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search */}
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              placeholder="Search recipient, subject..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 rounded-xl text-sm border-none outline-none"
+              style={{
+                background: 'var(--bg-input)',
+                color: 'var(--text-primary)',
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Email Count */}
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Showing {filteredEmails.length} of {emailLogs.length} emails
+          </p>
+        </div>
+
+        {/* Email List */}
+        {filteredEmails.length === 0 ? (
+          <div className="text-center py-12">
+            <Mail className="w-12 h-12 mx-auto mb-3" style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
+            <p className="font-bold text-lg" style={{ color: 'var(--text-muted)' }}>No emails found</p>
+            <p className="text-sm mt-1" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>
+              {emailLogs.length === 0 ? 'Send your first email to see tracking data here' : 'Try adjusting your filters'}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filteredEmails.map((log) => {
+              const senderInfo = SENDER_EMAILS.find(s => s.email.toLowerCase() === (log.senderEmail || '').toLowerCase());
+              const statusColor = getStatusColor(log.status);
+
+              return (
+                <motion.div
+                  key={log.id}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200"
+                  style={{
+                    background: selectedEmail?.id === log.id ? `${senderInfo?.color || '#2563EB'}10` : 'var(--bg-elevated)',
+                    border: selectedEmail?.id === log.id ? `1px solid ${senderInfo?.color || '#2563EB'}40` : '1px solid transparent',
+                  }}
+                  onClick={() => setSelectedEmail(selectedEmail?.id === log.id ? null : log)}
+                  onMouseEnter={(e) => {
+                    if (selectedEmail?.id !== log.id) e.currentTarget.style.background = 'var(--bg-input)';
+                  }}
+                  onMouseLeave={(e) => {
+                    if (selectedEmail?.id !== log.id) e.currentTarget.style.background = 'var(--bg-elevated)';
+                  }}
+                >
+                  {/* Sender Photo */}
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={senderInfo?.photo || '/sender-photos/marcel.png'}
+                      alt={log.senderName || 'Sender'}
+                      className="w-10 h-10 rounded-full object-cover"
+                      style={{ border: `2px solid ${senderInfo?.color || '#6B7280'}` }}
+                    />
+                    <div
+                      className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2"
+                      style={{
+                        background: statusColor.text,
+                        borderColor: 'var(--bg-surface)',
+                      }}
+                    />
+                  </div>
+
+                  {/* Email Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-sm font-bold truncate">{log.senderName || senderInfo?.name || 'Unknown'}</span>
+                      <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
+                      <span className="text-sm font-medium truncate" style={{ color: 'var(--text-secondary)' }}>
+                        {log.leadName || log.leadEmail}
+                      </span>
+                    </div>
+                    <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                      {log.subject || 'No subject'}
+                    </p>
+                  </div>
+
+                  {/* Status Badge */}
+                  <div className="flex-shrink-0 flex items-center gap-3">
+                    <span
+                      className="px-2.5 py-1 rounded-full text-xs font-bold capitalize"
+                      style={{ background: statusColor.bg, color: statusColor.text }}
+                    >
+                      {log.status}
+                    </span>
+                    <span className="text-xs hidden sm:block" style={{ color: 'var(--text-muted)' }}>
+                      {log.sentAt ? new Date(log.sentAt).toLocaleString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true,
+                      }) : '-'}
+                    </span>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Slide-out Email Preview Panel */}
+      <AnimatePresence>
+        {selectedEmail && (() => {
+          const senderInfo = SENDER_EMAILS.find(s => s.email.toLowerCase() === (selectedEmail.senderEmail || '').toLowerCase());
+          const statusColor = getStatusColor(selectedEmail.status);
+
+          return (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100]"
+              onClick={() => setSelectedEmail(null)}
+            >
+              {/* Backdrop */}
+              <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+
+              {/* Panel */}
+              <motion.div
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+                className="absolute right-0 top-0 bottom-0 w-full max-w-lg overflow-y-auto"
+                style={{
+                  background: 'var(--bg-surface)',
+                  borderLeft: '1px solid var(--border-subtle)',
+                  boxShadow: '-8px 0 32px rgba(0,0,0,0.2)',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Panel Header */}
+                <div
+                  className="sticky top-0 z-10 p-4 flex items-center justify-between"
+                  style={{
+                    background: 'var(--bg-surface)',
+                    borderBottom: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={senderInfo?.photo || '/sender-photos/marcel.png'}
+                      alt={selectedEmail.senderName || ''}
+                      className="w-10 h-10 rounded-full object-cover"
+                      style={{ border: `2px solid ${senderInfo?.color || '#6B7280'}` }}
+                    />
+                    <div>
+                      <p className="font-bold text-sm">{selectedEmail.senderName || 'Unknown'}</p>
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {selectedEmail.senderEmail || ''}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedEmail(null)}
+                    className="p-2 rounded-xl transition-colors hover:bg-white/10"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-5 space-y-5">
+                  {/* Status & Tracking Timeline */}
+                  <div className="glass-card p-4 rounded-2xl">
+                    <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>
+                      Delivery Status
+                    </p>
+                    <div className="flex items-center gap-2 mb-4">
+                      <span
+                        className="px-3 py-1.5 rounded-full text-sm font-bold capitalize"
+                        style={{ background: statusColor.bg, color: statusColor.text }}
+                      >
+                        {selectedEmail.status}
+                      </span>
+                      {selectedEmail.sentAt && (
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                          {new Date(selectedEmail.sentAt).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Status Timeline */}
+                    <div className="space-y-3">
+                      {['sent', 'delivered', 'opened', 'clicked', 'replied'].map((step, i) => {
+                        const stepPriority = ['sent', 'delivered', 'opened', 'clicked', 'replied'].indexOf(step);
+                        const currentPriority = ['sent', 'delivered', 'opened', 'clicked', 'replied'].indexOf(selectedEmail.status);
+                        const isCompleted = selectedEmail.status !== 'bounced' && currentPriority >= stepPriority;
+                        const isCurrent = selectedEmail.status === step;
+                        const stepColor = getStatusColor(step);
+
+                        return (
+                          <div key={step} className="flex items-center gap-3">
+                            <div
+                              className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold', isCurrent && 'ring-2 ring-offset-1')}
+                              style={{
+                                background: isCompleted ? stepColor.bg : 'var(--bg-input)',
+                                color: isCompleted ? stepColor.text : 'var(--text-muted)',
+                                ringColor: isCurrent ? stepColor.text : undefined,
+                                ringOffsetColor: 'var(--bg-surface)',
+                              }}
+                            >
+                              {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : (i + 1)}
+                            </div>
+                            <span
+                              className={cn('text-sm capitalize', isCompleted ? 'font-bold' : '')}
+                              style={{ color: isCompleted ? stepColor.text : 'var(--text-muted)' }}
+                            >
+                              {step}
+                            </span>
+                            {selectedEmail.status === 'bounced' && step === 'sent' && (
+                              <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#EF4444' }}>
+                                Bounced
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Recipient Info */}
+                  <div className="glass-card p-4 rounded-2xl">
+                    <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>
+                      Recipient
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
+                        style={{
+                          background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.15), rgba(6, 182, 212, 0.15))',
+                          color: '#2563EB',
+                        }}
+                      >
+                        {(selectedEmail.leadName || selectedEmail.leadEmail || '?').charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm">{selectedEmail.leadName || 'Unknown'}</p>
+                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{selectedEmail.leadEmail}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Email Preview */}
+                  <div className="glass-card p-4 rounded-2xl">
+                    <p className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>
+                      Email Preview
+                    </p>
+                    <div className="mb-3">
+                      <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Subject</p>
+                      <p className="font-bold text-sm">{selectedEmail.subject || 'No subject'}</p>
+                    </div>
+                    {/* Branded email preview */}
+                    <div
+                      className="rounded-xl overflow-hidden"
+                      style={{ border: '1px solid var(--border-subtle)' }}
+                    >
+                      {/* Mini header */}
+                      <div style={{ background: '#000000', padding: '16px 20px', textAlign: 'center' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                          <img src="/favicon.svg" alt="Nexli" width="20" height="20" />
+                          <span style={{ color: '#ffffff', fontSize: '14px', fontWeight: 700, letterSpacing: '1px' }}>NEXLI</span>
+                        </div>
+                      </div>
+                      <div style={{ height: '2px', background: 'linear-gradient(to right, #2563EB, #06B6D4)' }} />
+                      {/* Body */}
+                      <div style={{ background: '#000000', padding: '20px', color: '#d1d5db', fontSize: '13px', lineHeight: 1.7 }}>
+                        {selectedEmail.body ? (
+                          selectedEmail.body.split(/\n\n+/).map((p, i) => (
+                            <p key={i} style={{ margin: '0 0 12px 0', color: '#d1d5db' }}>
+                              {p.split('\n').map((line, j) => (
+                                <React.Fragment key={j}>
+                                  {j > 0 && <br />}
+                                  {line}
+                                </React.Fragment>
+                              ))}
+                            </p>
+                          ))
+                        ) : (
+                          <p style={{ color: '#6b7280', fontStyle: 'italic' }}>Email body not available</p>
+                        )}
+                        {/* Mini signature */}
+                        <div style={{ borderTop: '1px solid #2d3548', marginTop: '12px', paddingTop: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <img
+                              src={senderInfo?.photo || '/sender-photos/marcel.png'}
+                              alt={selectedEmail.senderName || ''}
+                              style={{ width: '32px', height: '32px', borderRadius: '50%' }}
+                            />
+                            <div>
+                              <p style={{ color: '#ffffff', fontSize: '12px', fontWeight: 600, margin: 0 }}>
+                                {selectedEmail.senderName || 'Unknown'}
+                              </p>
+                              <p style={{ color: '#9ca3af', fontSize: '11px', margin: 0 }}>
+                                {senderInfo?.role || ''}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Footer */}
+                      <div style={{ background: '#000000', padding: '12px 20px', textAlign: 'center', borderTop: '1px solid #1a1f2e' }}>
+                        <p style={{ color: '#4b5563', fontSize: '10px', margin: 0 }}>NEXLI Outreach</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* Bounced Emails Section */}
+      {bouncedEmails.length > 0 && (
+        <div className="glass-card p-4 md:p-6 rounded-2xl" style={{ borderTop: '3px solid #EF4444' }}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl" style={{ background: 'rgba(239, 68, 68, 0.12)' }}>
+                <AlertCircle className="w-5 h-5" style={{ color: '#EF4444' }} />
+              </div>
+              <div>
+                <h2 className="text-lg font-extrabold">Bounced Emails</h2>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {bouncedEmails.length} bounced — review and take action
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {bouncedEmails.map((log) => {
+              const senderInfo = SENDER_EMAILS.find(s => s.email.toLowerCase() === (log.senderEmail || '').toLowerCase());
+              const isRetrying = retryingId === log.id;
+
+              return (
+                <div
+                  key={log.id}
+                  className="flex items-center gap-3 p-3 rounded-xl"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                  }}
+                >
+                  {/* Sender Photo */}
+                  <img
+                    src={senderInfo?.photo || '/sender-photos/marcel.png'}
+                    alt={log.senderName || 'Sender'}
+                    className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                    style={{ border: '2px solid #EF4444', opacity: 0.7 }}
+                  />
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-sm font-bold truncate">{log.senderName || 'Unknown'}</span>
+                      <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
+                      <span className="text-sm truncate" style={{ color: '#EF4444' }}>
+                        {log.leadName || log.leadEmail}
+                      </span>
+                    </div>
+                    <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                      {log.subject || 'No subject'}
+                    </p>
+                    {log.errorMessage && (
+                      <p className="text-xs mt-1 truncate" style={{ color: '#EF4444', opacity: 0.8 }}>
+                        {log.errorMessage}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Date */}
+                  <span className="text-xs hidden sm:block flex-shrink-0" style={{ color: 'var(--text-muted)' }}>
+                    {log.sentAt ? new Date(log.sentAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '-'}
+                  </span>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRetryEmail(log); }}
+                      disabled={isRetrying}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 hover:opacity-80 disabled:opacity-40"
+                      style={{ background: 'rgba(37, 99, 235, 0.15)', color: '#3B82F6' }}
+                      title="Retry sending"
+                    >
+                      {isRetrying ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      Retry
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRemoveLead(log); }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 hover:opacity-80"
+                      style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#EF4444' }}
+                      title="Remove from campaigns"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Main App ---
 export default function App() {
   // Authentication state
@@ -7980,6 +8687,16 @@ export default function App() {
                   senderMetricsData={senderMetricsData}
                   setSenderMetricsData={setSenderMetricsData}
                   user={user}
+                />
+              )}
+              {activeTab === 'tracking' && (
+                <EmailTrackingView
+                  isDark={isDark}
+                  emailLogs={emailLogs}
+                  setEmailLogs={setEmailLogs}
+                  allLeads={allLeads}
+                  user={user}
+                  addNotification={addNotification}
                 />
               )}
 
