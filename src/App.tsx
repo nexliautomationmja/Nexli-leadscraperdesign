@@ -4015,21 +4015,18 @@ function CampaignsView({
 
       const cancelledCount = cancelled?.length || 0;
 
-      // 2. Release leads from campaign
-      const campaignLeadIds = campaigns.find(c => c.id === campaignId)?.leadIds || [];
-      if (campaignLeadIds.length > 0) {
-        await supabase
-          .from('leads')
-          .update({ in_campaign: false, active_campaign_id: null, active_campaign_name: null })
-          .in('id', campaignLeadIds)
-          .eq('user_id', user.id);
+      // 2. Release leads from campaign (by active_campaign_id in DB, not local state)
+      await supabase
+        .from('leads')
+        .update({ in_campaign: false, active_campaign_id: null, active_campaign_name: null })
+        .eq('active_campaign_id', campaignId)
+        .eq('user_id', user.id);
 
-        setAllLeads(prev => prev.map(l =>
-          campaignLeadIds.includes(l.id)
-            ? { ...l, inCampaign: false, activeCampaignId: undefined, activeCampaignName: undefined }
-            : l
-        ));
-      }
+      setAllLeads(prev => prev.map(l =>
+        l.activeCampaignId === campaignId
+          ? { ...l, inCampaign: false, activeCampaignId: undefined, activeCampaignName: undefined }
+          : l
+      ));
 
       // 3. Remove campaign from local state
       setCampaigns(prev => prev.filter(c => c.id !== campaignId));
@@ -7679,6 +7676,31 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('nexli-sender-rotation-index', String(senderRotationIndex));
   }, [senderRotationIndex]);
+
+  // Clean up orphaned leads (marked in_campaign but campaign no longer exists)
+  useEffect(() => {
+    if (!user || loading || allLeads.length === 0) return;
+    const campaignIds = new Set(campaigns.map(c => c.id));
+    const orphanedLeads = allLeads.filter(l => l.inCampaign && l.activeCampaignId && !campaignIds.has(l.activeCampaignId));
+    if (orphanedLeads.length === 0) return;
+
+    // Clear in Supabase
+    supabase
+      .from('leads')
+      .update({ in_campaign: false, active_campaign_id: null, active_campaign_name: null })
+      .in('id', orphanedLeads.map(l => l.id))
+      .eq('user_id', user.id)
+      .then(() => {
+        console.log(`Released ${orphanedLeads.length} orphaned leads from deleted campaigns`);
+      });
+
+    // Clear locally
+    setAllLeads(prev => prev.map(l =>
+      l.inCampaign && l.activeCampaignId && !campaignIds.has(l.activeCampaignId)
+        ? { ...l, inCampaign: false, activeCampaignId: undefined, activeCampaignName: undefined }
+        : l
+    ));
+  }, [user, loading, allLeads.length, campaigns.length]);
 
   // Server-Side Email Scheduler - Calls API endpoint to send scheduled emails
   useEffect(() => {
