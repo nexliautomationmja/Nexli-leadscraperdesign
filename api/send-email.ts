@@ -8,8 +8,8 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const SENDERS: Record<string, { name: string; role: string; photo: string | null }> = {
   'marcel@nexlioutreach.net': { name: 'Marcel Allen', role: 'Founder & CEO', photo: 'marcel.png' },
   'justine@nexlioutreach.net': { name: 'Justine Adams', role: 'COO', photo: 'justine.png' },
-  'bernice@nexlioutreach.net': { name: 'Bernice Hall', role: 'Client Success Manager', photo: 'bernice.png' },
-  'jian@nexlioutreach.net': { name: 'Jian Wei', role: 'Solutions Architect', photo: 'jian.png' },
+  'bernice@nexlioutreach.net': { name: 'Bernice Hall', role: 'Business Development Manager', photo: 'bernice.png' },
+  'jian@nexlioutreach.net': { name: 'Jian Wei', role: 'CTO', photo: 'jian.png' },
 };
 
 const BASE_URL = 'https://leadscraper.nexli.net';
