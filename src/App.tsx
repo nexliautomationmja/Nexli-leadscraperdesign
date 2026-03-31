@@ -3992,6 +3992,56 @@ function CampaignsView({
     addNotification('success', 'Campaign Completed', `Released ${campaignLeadIds.length} leads from campaign`);
   };
 
+  // Delete campaign: cancel all pending emails, release leads, remove campaign
+  const deleteCampaign = async (campaignId: string) => {
+    if (!user) return;
+
+    try {
+      // 1. Cancel all pending scheduled emails for this campaign
+      const { data: cancelled, error: cancelError } = await supabase
+        .from('scheduled_emails')
+        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+        .eq('campaign_id', campaignId)
+        .eq('status', 'pending')
+        .eq('user_id', user.id)
+        .select('id');
+
+      if (cancelError) {
+        console.error('Failed to cancel scheduled emails:', cancelError);
+        addNotification('error', 'Delete Failed', 'Could not cancel pending emails');
+        return;
+      }
+
+      const cancelledCount = cancelled?.length || 0;
+
+      // 2. Release leads from campaign
+      const campaignLeadIds = campaigns.find(c => c.id === campaignId)?.leadIds || [];
+      if (campaignLeadIds.length > 0) {
+        await supabase
+          .from('leads')
+          .update({ in_campaign: false, active_campaign_id: null, active_campaign_name: null })
+          .in('id', campaignLeadIds)
+          .eq('user_id', user.id);
+
+        setAllLeads(prev => prev.map(l =>
+          campaignLeadIds.includes(l.id)
+            ? { ...l, inCampaign: false, activeCampaignId: undefined, activeCampaignName: undefined }
+            : l
+        ));
+      }
+
+      // 3. Remove campaign from local state
+      setCampaigns(prev => prev.filter(c => c.id !== campaignId));
+      setSelectedCampaign(null);
+      setActivityData(null);
+
+      addNotification('success', 'Campaign Deleted', `Cancelled ${cancelledCount} pending emails and released ${campaignLeadIds.length} leads`);
+    } catch (error) {
+      console.error('Error deleting campaign:', error);
+      addNotification('error', 'Delete Failed', 'Something went wrong while deleting the campaign');
+    }
+  };
+
   // Auto-split leads into 4 sender groups
   const splitLeadsIntoGroups = (leadIds: string[]) => {
     const groups: Record<string, string[]> = {};
@@ -4532,6 +4582,17 @@ function CampaignsView({
               Mark Complete
             </button>
           )}
+          <button
+            onClick={() => {
+              if (confirm('Delete this campaign? All pending emails will be cancelled and leads will be released.')) {
+                deleteCampaign(selectedCampaign.id);
+              }
+            }}
+            className="px-4 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-80"
+            style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#EF4444' }}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Stats Dashboard */}
@@ -5275,19 +5336,34 @@ function CampaignsView({
                   </div>
                 </div>
 
-                {campaign.isSequence && campaign.status === 'active' && (
-                  <div className="flex justify-end mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                {campaign.isSequence && (
+                  <div className="flex justify-end gap-2 mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                    {campaign.status === 'active' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm('Mark this campaign as complete? This will release all leads for future campaigns.')) {
+                            releaseCampaignLeads(campaign.id);
+                          }
+                        }}
+                        className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
+                        style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}
+                      >
+                        Mark Complete
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm('Mark this campaign as complete? This will release all leads for future campaigns.')) {
-                          releaseCampaignLeads(campaign.id);
+                        if (confirm('Delete this campaign? All pending emails will be cancelled and leads will be released.')) {
+                          deleteCampaign(campaign.id);
                         }
                       }}
-                      className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
-                      style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}
+                      className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-80 flex items-center gap-1"
+                      style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#EF4444' }}
                     >
-                      Mark Complete
+                      <Trash2 className="w-3 h-3" />
+                      Delete
                     </button>
                   </div>
                 )}
