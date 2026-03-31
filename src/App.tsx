@@ -4139,7 +4139,8 @@ function CampaignsView({
       let totalInserted = 0;
       let failedInserts = 0;
 
-      // For each step × each sender group × each lead → insert scheduled_email
+      // Build all payloads first, then batch insert
+      const allPayloads: any[] = [];
       for (let step = 0; step < 14; step++) {
         const dayOffset = SEQ_DAY_OFFSETS[step];
         const scheduledDate = new Date(startDT);
@@ -4155,12 +4156,8 @@ function CampaignsView({
             const lead = allLeads.find(l => l.id === leadId);
             if (!lead) continue;
 
-            // Personalize {firstName} with lead's first name
             const firstName = lead.name.split(' ')[0] || lead.name;
-            const personalizedSubject = templateSubject.replace(/\{firstName\}/g, firstName);
-            const personalizedBody = templateBody.replace(/\{firstName\}/g, firstName);
-
-            const payload = {
+            allPayloads.push({
               id: crypto.randomUUID(),
               user_id: user.id,
               lead_id: lead.id,
@@ -4168,24 +4165,29 @@ function CampaignsView({
               lead_email: lead.email,
               lead_company: lead.company || '',
               lead_role: lead.role || '',
-              subject: personalizedSubject,
-              body: personalizedBody,
+              subject: templateSubject.replace(/\{firstName\}/g, firstName),
+              body: templateBody.replace(/\{firstName\}/g, firstName),
               scheduled_for: scheduledDate.toISOString(),
               sender_name: sender.name,
               sender_email: sender.email,
               status: 'pending',
               sequence_number: step + 1,
               campaign_id: campaignId,
-            };
-
-            const { error } = await supabase.from('scheduled_emails').insert(payload);
-            if (error) {
-              console.error('Insert error:', error.message);
-              failedInserts++;
-            } else {
-              totalInserted++;
-            }
+            });
           }
+        }
+      }
+
+      // Batch insert in chunks of 500 (Supabase limit)
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < allPayloads.length; i += BATCH_SIZE) {
+        const batch = allPayloads.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase.from('scheduled_emails').insert(batch);
+        if (error) {
+          console.error(`Batch insert error (rows ${i}-${i + batch.length}):`, error.message);
+          failedInserts += batch.length;
+        } else {
+          totalInserted += batch.length;
         }
       }
 
