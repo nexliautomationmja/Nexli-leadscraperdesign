@@ -4567,31 +4567,17 @@ function CampaignsView({
             {activityLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             {activityLoading ? 'Loading...' : activityData ? 'Refresh' : 'Load Activity'}
           </button>
-          {selectedCampaign.status === 'active' && (
-            <button
-              onClick={() => {
-                if (confirm('Mark this campaign as complete? This will release all leads for future campaigns.')) {
-                  releaseCampaignLeads(selectedCampaign.id);
-                  setSelectedCampaign(null);
-                  setActivityData(null);
-                }
-              }}
-              className="px-4 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-80"
-              style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}
-            >
-              Mark Complete
-            </button>
-          )}
           <button
             onClick={() => {
               if (confirm('Delete this campaign? All pending emails will be cancelled and leads will be released.')) {
                 deleteCampaign(selectedCampaign.id);
               }
             }}
-            className="px-4 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-80"
+            className="px-4 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-80 flex items-center gap-2"
             style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#EF4444' }}
           >
             <Trash2 className="w-4 h-4" />
+            Delete
           </button>
         </div>
 
@@ -5337,21 +5323,7 @@ function CampaignsView({
                 </div>
 
                 {campaign.isSequence && (
-                  <div className="flex justify-end gap-2 mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                    {campaign.status === 'active' && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm('Mark this campaign as complete? This will release all leads for future campaigns.')) {
-                            releaseCampaignLeads(campaign.id);
-                          }
-                        }}
-                        className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
-                        style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}
-                      >
-                        Mark Complete
-                      </button>
-                    )}
+                  <div className="flex justify-end mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
