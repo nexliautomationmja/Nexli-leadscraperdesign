@@ -5195,7 +5195,7 @@ function CampaignsView({
         <div className="glass-card p-4 md:p-6">
           <h2 className="text-lg md:text-xl font-bold mb-4 flex items-center gap-2">
             <BarChart3 className="w-5 h-5" />
-            Justine's Active Campaigns
+            Active Campaigns
           </h2>
           <div className="space-y-4">
             {campaigns
