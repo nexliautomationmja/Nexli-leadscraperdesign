@@ -7681,22 +7681,42 @@ export default function App() {
   useEffect(() => {
     if (!user || loading || allLeads.length === 0) return;
     const campaignIds = new Set(campaigns.map(c => c.id));
-    const orphanedLeads = allLeads.filter(l => l.inCampaign && l.activeCampaignId && !campaignIds.has(l.activeCampaignId));
+    const orphanedLeads = allLeads.filter(l =>
+      l.inCampaign && (!l.activeCampaignId || !campaignIds.has(l.activeCampaignId))
+    );
     if (orphanedLeads.length === 0) return;
 
-    // Clear in Supabase
-    supabase
-      .from('leads')
-      .update({ in_campaign: false, active_campaign_id: null, active_campaign_name: null })
-      .in('id', orphanedLeads.map(l => l.id))
-      .eq('user_id', user.id)
-      .then(() => {
-        console.log(`Released ${orphanedLeads.length} orphaned leads from deleted campaigns`);
-      });
+    console.log(`Found ${orphanedLeads.length} orphaned leads, releasing...`);
+
+    // Clear ALL in_campaign leads for this user that don't belong to active campaigns
+    // Use broad Supabase query to catch any DB-level orphans too
+    if (campaigns.length === 0) {
+      // No campaigns at all — clear every in_campaign lead
+      supabase
+        .from('leads')
+        .update({ in_campaign: false, active_campaign_id: null, active_campaign_name: null })
+        .eq('user_id', user.id)
+        .eq('in_campaign', true)
+        .then(({ error }) => {
+          if (error) console.error('Orphan cleanup error:', error);
+          else console.log('Released all orphaned leads (no campaigns exist)');
+        });
+    } else {
+      // Some campaigns exist — only clear orphans
+      supabase
+        .from('leads')
+        .update({ in_campaign: false, active_campaign_id: null, active_campaign_name: null })
+        .in('id', orphanedLeads.map(l => l.id))
+        .eq('user_id', user.id)
+        .then(({ error }) => {
+          if (error) console.error('Orphan cleanup error:', error);
+          else console.log(`Released ${orphanedLeads.length} orphaned leads`);
+        });
+    }
 
     // Clear locally
     setAllLeads(prev => prev.map(l =>
-      l.inCampaign && l.activeCampaignId && !campaignIds.has(l.activeCampaignId)
+      l.inCampaign && (!l.activeCampaignId || !campaignIds.has(l.activeCampaignId))
         ? { ...l, inCampaign: false, activeCampaignId: undefined, activeCampaignName: undefined }
         : l
     ));
