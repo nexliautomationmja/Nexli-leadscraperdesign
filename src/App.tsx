@@ -4081,8 +4081,8 @@ function CampaignsView({
       const hour24 = seqStartPeriod === 'PM' && seqStartHour !== '12'
         ? parseInt(seqStartHour) + 12
         : seqStartPeriod === 'AM' && seqStartHour === '12' ? 0 : parseInt(seqStartHour);
-      const startDT = new Date(seqStartDate);
-      startDT.setHours(hour24, parseInt(seqStartMinute), 0, 0);
+      const [yr, mo, dy] = seqStartDate.split('-').map(Number);
+      const startDT = new Date(yr, mo - 1, dy, hour24, parseInt(seqStartMinute), 0, 0);
 
       const campaignId = `seq-${Date.now()}`;
       let totalInserted = 0;

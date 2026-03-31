@@ -7,9 +7,9 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // Sender metadata
 const SENDERS: Record<string, { name: string; role: string; photo: string | null }> = {
   'marcel@nexlioutreach.net': { name: 'Marcel Allen', role: 'Founder & CEO', photo: 'marcel.png' },
-  'justine@nexlioutreach.net': { name: 'Justine', role: 'COO', photo: 'justine.png' },
-  'bernice@nexlioutreach.net': { name: 'Bernice', role: 'Client Success Manager', photo: 'bernice.png' },
-  'jian@nexlioutreach.net': { name: 'Jian', role: 'CTO', photo: 'jian.png' },
+  'justine@nexlioutreach.net': { name: 'Justine Adams', role: 'COO', photo: 'justine.png' },
+  'bernice@nexlioutreach.net': { name: 'Bernice Hall', role: 'Client Success Manager', photo: 'bernice.png' },
+  'jian@nexlioutreach.net': { name: 'Jian Wei', role: 'Solutions Architect', photo: 'jian.png' },
 };
 
 const BASE_URL = 'https://leadscraper.nexli.net';
@@ -99,7 +99,7 @@ async function sendViaResend(params: {
   senderEmail: string;
 }): Promise<{ id: string }> {
   const sender = SENDERS[params.senderEmail.toLowerCase()];
-  const senderName = sender?.name.split(' ')[0] || 'Nexli';
+  const senderName = sender?.name || 'Nexli';
 
   // Capitalize first letter of subject (unless it starts with a number)
   const subject = params.subject && /^[a-z]/.test(params.subject)
