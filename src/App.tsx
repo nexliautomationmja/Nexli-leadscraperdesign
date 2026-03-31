@@ -169,6 +169,7 @@ interface ScheduledEmail {
   senderName: string; // Auto-assigned via rotation
   senderEmail: string;
   createdAt: string;
+  campaignId?: string;
 }
 
 interface Notification {
@@ -4981,13 +4982,13 @@ function CampaignsView({
         </div>
       </div>
 
-      {/* Scheduled Emails Section */}
-      {scheduledEmails.length > 0 && (
+      {/* Scheduled Emails Section (non-campaign only) */}
+      {scheduledEmails.filter(e => !e.campaignId).length > 0 && (
         <div className="glass-card p-4 md:p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg md:text-xl font-bold flex items-center gap-2">
               <Clock className="w-5 h-5 text-amber-500" />
-              Scheduled Emails ({scheduledEmails.length})
+              Scheduled Emails ({scheduledEmails.filter(e => !e.campaignId).length})
             </h2>
             <button
               onClick={async () => {
@@ -5053,6 +5054,7 @@ function CampaignsView({
                         lead: { id: email.lead_id, name: email.lead_name, email: email.lead_email, company: email.lead_company || '', role: email.lead_role || '', linkedin: '', status: 'verified' as const, score: 0 },
                         subject: email.subject, body: email.body, scheduledFor: email.scheduled_for,
                         senderName: email.sender_name, senderEmail: email.sender_email, createdAt: email.created_at,
+                        campaignId: email.campaign_id || undefined,
                       })));
                     }
                   }
@@ -5094,6 +5096,7 @@ function CampaignsView({
               </thead>
               <tbody>
                 {scheduledEmails
+                  .filter(e => !e.campaignId)
                   .sort((a, b) => new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime())
                   .map((email) => {
                     const timeInfo = getTimeUntilScheduled(email.scheduledFor);
@@ -7732,6 +7735,7 @@ export default function App() {
                   senderName: email.sender_name,
                   senderEmail: email.sender_email,
                   createdAt: email.created_at,
+                  campaignId: email.campaign_id || undefined,
                 }));
                 setScheduledEmails(emails);
               }
@@ -7928,6 +7932,7 @@ export default function App() {
               senderName: email.sender_name,
               senderEmail: email.sender_email,
               createdAt: email.created_at,
+              campaignId: email.campaign_id || undefined,
             })));
           }
         }
