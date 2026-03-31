@@ -26,7 +26,7 @@ function wrapInTemplate(body: string, senderEmail: string): string {
     .split(/\n\n+/)
     .map(p => p.trim())
     .filter(p => p.length > 0)
-    .map(p => `<p style="color: #d1d5db; font-size: 15px; line-height: 1.7; margin: 0 0 20px 0;">${p.replace(/\n/g, '<br>')}</p>`)
+    .map(p => `<p class="nx-text" style="color: #d1d5db; font-size: 15px; line-height: 1.7; margin: 0 0 20px 0;">${p.replace(/\n/g, '<br>')}</p>`)
     .join('\n              ');
 
   // Sender avatar: photo or initial circle
@@ -36,20 +36,39 @@ function wrapInTemplate(body: string, senderEmail: string): string {
 
   return `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark light">
+<meta name="supported-color-schemes" content="dark light">
+<style>
+  :root { color-scheme: dark light; }
+  @media (prefers-color-scheme: light) {
+    .nx-outer { background-color: #f3f4f6 !important; }
+    .nx-header { background-color: #ffffff !important; }
+    .nx-logo { color: #111827 !important; }
+    .nx-body { background-color: #ffffff !important; }
+    .nx-text { color: #374151 !important; }
+    .nx-divider { border-top-color: #e5e7eb !important; }
+    .nx-name { color: #111827 !important; }
+    .nx-role { color: #6b7280 !important; }
+    .nx-link { color: #2563EB !important; }
+    .nx-footer { background-color: #ffffff !important; }
+    .nx-footer-text { color: #9ca3af !important; }
+  }
+</style>
+</head>
 <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding: 24px; background-color: #ffffff;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="nx-outer" style="padding: 24px; background-color: #ffffff;">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
         <!-- Header -->
-        <tr><td style="background-color: #000000; border-radius: 12px 12px 0 0; padding: 24px 32px; text-align: center;">
+        <tr><td class="nx-header" style="background-color: #000000; border-radius: 12px 12px 0 0; padding: 24px 32px; text-align: center;">
           <a href="https://www.nexli.net" style="text-decoration: none; display: inline-block;">
             <table role="presentation" cellpadding="0" cellspacing="0" style="display: inline-table;"><tr>
               <td style="vertical-align: middle;">
                 <img src="${BASE_URL}/favicon.svg" alt="Nexli" width="32" height="32" style="display: block;" />
               </td>
               <td style="vertical-align: middle; padding-left: 10px;">
-                <span style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: 1px;">NEXLI</span>
+                <span class="nx-logo" style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: 1px;">NEXLI</span>
               </td>
             </tr></table>
           </a>
@@ -57,26 +76,26 @@ function wrapInTemplate(body: string, senderEmail: string): string {
         <!-- Gradient line -->
         <tr><td style="height: 3px; background: linear-gradient(to right, #2563EB, #06B6D4); font-size: 0; line-height: 0;">&nbsp;</td></tr>
         <!-- Body -->
-        <tr><td style="background-color: #000000; padding: 36px 32px;">
+        <tr><td class="nx-body" style="background-color: #000000; padding: 36px 32px;">
               ${htmlBody}
               <!-- Signature divider -->
-              <div style="border-top: 1px solid #2d3548; margin: 8px 0 24px 0;"></div>
+              <div class="nx-divider" style="border-top: 1px solid #2d3548; margin: 8px 0 24px 0;"></div>
               <!-- Sender signature -->
               <table role="presentation" cellpadding="0" cellspacing="0"><tr>
                 <td style="vertical-align: top; padding-right: 14px;">
                   ${avatarHtml}
                 </td>
                 <td style="vertical-align: top;">
-                  <p style="color: #ffffff; font-size: 15px; font-weight: 600; margin: 0 0 2px 0;">${senderName}</p>
-                  <p style="color: #9ca3af; font-size: 13px; margin: 0 0 2px 0;">${senderRole}</p>
-                  <p style="margin: 0;"><a href="https://www.nexli.net/rainmaker" style="color: #60a5fa; font-size: 13px; text-decoration: none;">nexli.net/rainmaker</a></p>
+                  <p class="nx-name" style="color: #ffffff; font-size: 15px; font-weight: 600; margin: 0 0 2px 0;">${senderName}</p>
+                  <p class="nx-role" style="color: #9ca3af; font-size: 13px; margin: 0 0 2px 0;">${senderRole}</p>
+                  <p style="margin: 0;"><a class="nx-link" href="https://www.nexli.net/rainmaker" style="color: #60a5fa; font-size: 13px; text-decoration: none;">nexli.net/rainmaker</a></p>
                 </td>
               </tr></table>
         </td></tr>
         <!-- Footer -->
-        <tr><td style="background-color: #000000; border-radius: 0 0 12px 12px; padding: 20px 32px; text-align: center;">
-          <p style="color: #6b7280; font-size: 11px; margin: 0 0 4px 0;">NEXLI Outreach &bull; Automated Lead Intelligence</p>
-          <p style="color: #4b5563; font-size: 11px; margin: 0;">You're receiving this because your profile matched our outreach criteria.</p>
+        <tr><td class="nx-footer" style="background-color: #000000; border-radius: 0 0 12px 12px; padding: 20px 32px; text-align: center;">
+          <p class="nx-footer-text" style="color: #6b7280; font-size: 11px; margin: 0 0 4px 0;">NEXLI Outreach &bull; Automated Lead Intelligence</p>
+          <p class="nx-footer-text" style="color: #4b5563; font-size: 11px; margin: 0;">You're receiving this because your profile matched our outreach criteria.</p>
         </td></tr>
       </table>
     </td></tr>
