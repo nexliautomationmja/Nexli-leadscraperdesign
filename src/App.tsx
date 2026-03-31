@@ -4178,8 +4178,8 @@ function CampaignsView({
         }
       }
 
-      // Batch insert in chunks of 500 (Supabase limit)
-      const BATCH_SIZE = 500;
+      // Batch insert in chunks of 100 (keeps payload size manageable with long email bodies)
+      const BATCH_SIZE = 100;
       for (let i = 0; i < allPayloads.length; i += BATCH_SIZE) {
         const batch = allPayloads.slice(i, i + BATCH_SIZE);
         const { error } = await supabase.from('scheduled_emails').insert(batch);
