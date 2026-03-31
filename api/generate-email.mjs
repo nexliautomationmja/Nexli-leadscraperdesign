@@ -222,7 +222,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { lead, posts, variation, sender } = req.body;
+    const { lead, posts, variation, sender, sequenceStep, sequenceTheme, subjectLine, previousThemes } = req.body;
 
     // Validate sender info
     if (!sender || !sender.name || !sender.personality) {
@@ -235,16 +235,64 @@ export default async function handler(req, res) {
       .map((p, i) => `Post ${i + 1}: "${(p.text || p.postText || '').slice(0, 300)}"`)
       .join('\n');
 
-    // Randomly select variation if not specified
-    const variationKeys = Object.keys(EMAIL_VARIATIONS);
-    const selectedVariation = variation || variationKeys[Math.floor(Math.random() * variationKeys.length)];
-    const variationConfig = EMAIL_VARIATIONS[selectedVariation];
+    let prompt;
+    let selectedVariation;
 
-    console.log('Selected variation:', selectedVariation);
-    console.log('Sender:', sender.name, '-', sender.role);
+    // Sequence campaign mode — custom theme per step
+    if (sequenceStep && sequenceTheme) {
+      selectedVariation = 'sequence';
+      console.log('Sequence mode - Step:', sequenceStep, 'Theme:', sequenceTheme);
+      console.log('Sender:', sender.name, '-', sender.role);
 
-    // Generate prompt for selected variation with sender personality
-    const prompt = variationConfig.prompt(lead, postSummary, sender);
+      const priorContext = previousThemes && previousThemes.length > 0
+        ? `\nPREVIOUS EMAILS IN THIS SEQUENCE (do NOT repeat these angles):\n${previousThemes.map((t, i) => `Email ${i + 1}: ${t}`).join('\n')}\n`
+        : '';
+
+      const subjectInstruction = subjectLine
+        ? `- SUBJECT LINE IS PRE-SET: "${subjectLine}" — use this EXACT subject line in your JSON response. Write the body to match this subject's tone and angle.`
+        : '- Subject line: 3-6 words, curiosity-driven';
+
+      prompt = `You are ${sender.name}, ${sender.role} at Nexli Automation.
+
+${PRODUCT_KNOWLEDGE}
+
+SENDER PERSONALITY & VOICE:
+${sender.personality}
+
+Write email #${sequenceStep} of 14 in a drip sequence to ${lead.name}, ${lead.role} at ${lead.company}.
+
+${postSummary ? `Recent LinkedIn activity:\n${postSummary}\n\nReference ONE post naturally if relevant.` : 'Use their role and company context.'}
+${priorContext}
+**THIS EMAIL'S THEME/ANGLE:**
+${sequenceTheme}
+
+**CRITICAL RULES:**
+- This is email ${sequenceStep} of 14. ${sequenceStep === 1 ? 'This is the FIRST touch — introduce yourself naturally.' : sequenceStep <= 3 ? 'Early in the sequence — build curiosity and rapport.' : sequenceStep <= 7 ? 'Mid-sequence — share deeper insights and social proof.' : sequenceStep <= 11 ? 'Later in the sequence — create urgency and address objections.' : 'Final emails — last chance, direct ask, urgency.'}
+- Keep under 100 words
+- Write in ${sender.name}'s authentic voice
+${subjectInstruction}
+- End with a simple question or call-to-action that leads to a 10-minute call
+- The closing question/line from the theme is MANDATORY — use it exactly or very close to it
+- DO NOT mention pricing — that's for the call only
+- Sign off with just "${sender.name}"
+- Make it feel personal, NOT like a template or sequence
+- The email will be sent in a branded HTML template with sender photo, name, role, and Nexli branding — do NOT include any HTML, links, or formatting. Just write the plain text body.
+
+TONE: Conversational, genuine, like texting a colleague. ${sequenceStep > 5 ? 'You can acknowledge you\'ve reached out before without being pushy.' : ''}
+
+Return ONLY valid JSON:
+{"subject": "your subject line", "body": "your email body"}`;
+    } else {
+      // Standard variation mode
+      const variationKeys = Object.keys(EMAIL_VARIATIONS);
+      selectedVariation = variation || variationKeys[Math.floor(Math.random() * variationKeys.length)];
+      const variationConfig = EMAIL_VARIATIONS[selectedVariation];
+
+      console.log('Selected variation:', selectedVariation);
+      console.log('Sender:', sender.name, '-', sender.role);
+
+      prompt = variationConfig.prompt(lead, postSummary, sender);
+    }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -286,7 +334,7 @@ export default async function handler(req, res) {
     return res.json({
       ...email,
       variation: selectedVariation,
-      variationName: variationConfig.name
+      variationName: selectedVariation === 'sequence' ? `Sequence Step ${sequenceStep}` : EMAIL_VARIATIONS[selectedVariation]?.name,
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });

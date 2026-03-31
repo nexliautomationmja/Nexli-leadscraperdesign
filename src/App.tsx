@@ -93,6 +93,10 @@ interface Lead {
   generatedEmail?: { subject: string; body: string };
   emailSendStatus?: 'draft' | 'sent' | 'failed';
   isFavorite?: boolean;
+  notes?: string;
+  inCampaign?: boolean;
+  activeCampaignId?: string;
+  activeCampaignName?: string;
   createdAt?: string; // When lead was added to database
 }
 
@@ -129,6 +133,15 @@ interface Campaign {
     scheduledFor: string;
     timezone: string;
   };
+  // Sequence campaign fields
+  isSequence?: boolean;
+  sequenceSteps?: Array<{
+    step: number;
+    theme: string;
+    dayOffset: number;
+    variants: Record<string, { subject: string; body: string }>; // senderEmail → email content
+  }>;
+  senderGroups?: Record<string, string[]>; // senderEmail → lead IDs
 }
 
 interface EmailLog {
@@ -144,6 +157,7 @@ interface EmailLog {
   errorMessage?: string;
   senderName?: string; // For A/B/C/D testing sender performance
   senderEmail?: string;
+  sequenceNumber?: number;
 }
 
 interface ScheduledEmail {
@@ -233,6 +247,24 @@ const SENDER_EMAILS = [
     role: 'Solutions Architect',
     personality: 'The silent killer. Solutions Architect who designed the technical backbone of the Digital Rainmaker System. Breaks down complex automation (missed-call text-back, AI chat, auto-booking, nurture sequences, quantum-resistant encryption) into simple outcomes a 60-year-old CPA partner can understand. Emphasizes RESULTS over features: "You respond to every lead in 60 seconds, even at 2am" not "We have AI automation." Sells the destination (never lose a lead, save 18 hours/week, cut software costs 60%) not the flights (how the tech works). Clear, simple, results-focused. Makes technical concepts relatable. Conversational and straight to the point.'
   },
+];
+
+// --- 14-Email Sequence Config (Pre-built themes + subject lines) ---
+const SEQUENCE_EMAIL_CONFIG = [
+  { subject: 'This might sting a little', theme: 'Tool consolidation poll — curiosity question, no pitch. Ask how many different platforms they\'re paying for (DocuSign, invoicing, client portal, CRM, etc). No mention of product. Just get a response.' },
+  { subject: 'Is this just normal now?', theme: 'Intake paperwork pain — ask about manual intake process, chasing documents, W-2s. End with no-oriented closer: "Or have you just accepted that\'s how it has to be?"' },
+  { subject: 'Who\'s losing your leads?', theme: '5-minute response stat — 78% of clients choose the FIRST firm to respond within 5 minutes. Most CPA firms take 4+ hours. End with "guess who\'s accountable for that..." (with ellipsis, no question mark)' },
+  { subject: 'They Googled you last night', theme: '11pm Google scenario — someone Googled "CPA near me" at 11pm, found their website, filled out a form... and heard nothing until the next morning. By then they\'ve already called a competitor. Close with: "Would you like to bring on clients without them ever looking at a competitor?"' },
+  { subject: 'He was bleeding $2,100/month in tools', theme: 'Tech stack costs — walk through the stack: DocuSign ($40-60/mo), invoicing platform, client portal, CRM, payment processor, review tool... adds up to ~$2,100/month. Close with no-oriented question: "Do you not have an all-in-one system under $1,000/month for all of that?"' },
+  { subject: '80+ reviews without asking', theme: 'Google reviews on autopilot — what if you could go from 4-12 Google reviews to 80+ without manually asking a single client? The review engine handles it automatically. Close with: "Would it be a terrible idea to show you how this works in 15 minutes?"' },
+  { subject: 'What your clients wish you had', theme: 'Client portal vision — engagement letters with e-sign, tax organizers, secure document collection, invoicing, client messaging all in ONE portal. Close with no-oriented question: "Would you be opposed to seeing what that looks like?"' },
+  { subject: '$24K gone — want half back?', theme: '$24,000+/year in disconnected software costs. One partner mapped it out and realized the waste. Saved him 50% and actually got more functionality. Close with no-oriented question: "Would you be against finding out if you could cut your software expenses in half?"' },
+  { subject: 'Your leads aren\'t waiting around', theme: 'Fastest-growing CPA firms all have one thing in common: they respond to every lead in under 5 minutes, even at 2am. AI handles it automatically. Close with humorous question: "Do you think your prospects enjoy waiting 3 days for a response?"' },
+  { subject: 'Enjoying chasing W-2s tonight?', theme: '"Too busy" reframe — if you\'re too busy, that\'s exactly the problem. The busiest firms are the ones that need automation the most. Close with humorous question: "Unless you actually enjoy spending your evenings chasing down missing W-2s?"' },
+  { subject: 'You almost missed this', theme: 'Higher-status framing — you\'re doing them a favor by reaching out. You don\'t work with every firm, but their profile fits. Frame as exclusive opportunity. Close with: "Would it be unreasonable to take 15 minutes and see it for yourself?"' },
+  { subject: 'Your competitors noticed', theme: 'HIGH STATUS: Competitors are paying attention and pulling ahead — faster response times, automated everything, half the software costs. The gap between firms using this and firms that aren\'t is only getting wider. You still have room to take on a few more. Close with: "Would you be against being one of them?"' },
+  { subject: 'Before I go', theme: 'HIGH STATUS: The math doesn\'t lie — every week they wait is another week of lost leads, wasted software spend, and manual work. The firms that jumped on this aren\'t looking back. Wrapping up outreach soon. Close with: "Would it be the worst idea to take 15 minutes before I move on?"' },
+  { subject: 'Closing your file', theme: 'HIGH STATUS BREAKUP: Closing their file. No hard feelings. But be honest — the firms that passed on this a year ago came back, and their competitors had a head start by then. If they ever decide to stop leaving money on the table, your inbox is open. Close with: "I\'m rooting for you."' },
 ];
 
 // --- Lead Scoring ---
@@ -3867,6 +3899,7 @@ function CampaignsView({
   emailLogs,
   setEmailLogs,
   allLeads,
+  setAllLeads,
   emailTemplates,
   scheduledCampaigns,
   setScheduledCampaigns,
@@ -3883,6 +3916,7 @@ function CampaignsView({
   emailLogs: EmailLog[];
   setEmailLogs: React.Dispatch<React.SetStateAction<EmailLog[]>>;
   allLeads: Lead[];
+  setAllLeads: React.Dispatch<React.SetStateAction<Lead[]>>;
   emailTemplates: EmailTemplate[];
   scheduledCampaigns: string[];
   setScheduledCampaigns: React.Dispatch<React.SetStateAction<string[]>>;
@@ -3894,12 +3928,280 @@ function CampaignsView({
   user: any;
 }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showSequenceWizard, setShowSequenceWizard] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [showAllLogs, setShowAllLogs] = useState(false);
+
+  // Sequence wizard state
+  const [seqStep, setSeqStep] = useState(1); // wizard step 1-5
+  const [seqName, setSeqName] = useState('');
+  const [seqSelectedLeads, setSeqSelectedLeads] = useState<string[]>([]);
+  const [seqSenderGroups, setSeqSenderGroups] = useState<Record<string, string[]>>({});
+  const [seqThemes, setSeqThemes] = useState<string[]>(SEQUENCE_EMAIL_CONFIG.map(c => c.theme));
+  const [seqSubjects, setSeqSubjects] = useState<string[]>(SEQUENCE_EMAIL_CONFIG.map(c => c.subject));
+  const [seqGeneratedEmails, setSeqGeneratedEmails] = useState<Record<number, Record<string, { subject: string; body: string }>>>({}); // step → senderEmail → {subject, body}
+  const [seqIsGenerating, setSeqIsGenerating] = useState(false);
+  const [seqGenProgress, setSeqGenProgress] = useState({ current: 0, total: 0 });
+  const [seqStartDate, setSeqStartDate] = useState('');
+  const [seqStartHour, setSeqStartHour] = useState('9');
+  const [seqStartMinute, setSeqStartMinute] = useState('00');
+  const [seqStartPeriod, setSeqStartPeriod] = useState('AM');
+  const [seqExpandedStep, setSeqExpandedStep] = useState<number | null>(null);
+  const [seqActiveSenderTab, setSeqActiveSenderTab] = useState<string>(SENDER_EMAILS[0]?.email || '');
+  const [seqIsLaunching, setSeqIsLaunching] = useState(false);
+
+  // Activity tracker state
+  const [activityTab, setActivityTab] = useState<'step' | 'lead' | 'sender'>('step');
+  const [activityData, setActivityData] = useState<{ email_logs: any[]; scheduled_emails: any[] } | null>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityExpandedStep, setActivityExpandedStep] = useState<number | null>(null);
+  const [activityExpandedLead, setActivityExpandedLead] = useState<string | null>(null);
+
+  // Day offsets for 14 emails every 2-3 days
+  const SEQ_DAY_OFFSETS = [0, 2, 5, 7, 10, 12, 15, 17, 20, 22, 25, 27, 30, 32];
+
+  // Release leads from a completed campaign
+  const releaseCampaignLeads = async (campaignId: string) => {
+    if (!user) return;
+    const campaignLeadIds = campaigns.find(c => c.id === campaignId)?.leadIds || [];
+    if (campaignLeadIds.length === 0) return;
+
+    const { error } = await supabase
+      .from('leads')
+      .update({ in_campaign: false, active_campaign_id: null, active_campaign_name: null })
+      .in('id', campaignLeadIds)
+      .eq('user_id', user.id);
+
+    if (error) {
+      addNotification('error', 'Release Failed', 'Could not release leads from campaign');
+      return;
+    }
+
+    setAllLeads(prev => prev.map(l =>
+      campaignLeadIds.includes(l.id)
+        ? { ...l, inCampaign: false, activeCampaignId: undefined, activeCampaignName: undefined }
+        : l
+    ));
+    setCampaigns(prev => prev.map(c =>
+      c.id === campaignId ? { ...c, status: 'completed' } : c
+    ));
+    addNotification('success', 'Campaign Completed', `Released ${campaignLeadIds.length} leads from campaign`);
+  };
+
+  // Auto-split leads into 4 sender groups
+  const splitLeadsIntoGroups = (leadIds: string[]) => {
+    const groups: Record<string, string[]> = {};
+    SENDER_EMAILS.forEach(s => { groups[s.email] = []; });
+    leadIds.forEach((id, i) => {
+      const senderIndex = i % SENDER_EMAILS.length;
+      groups[SENDER_EMAILS[senderIndex].email].push(id);
+    });
+    return groups;
+  };
+
+  // Generate emails for all steps and senders
+  const generateSequenceEmails = async () => {
+    setSeqIsGenerating(true);
+    const totalGenerations = 14 * SENDER_EMAILS.length; // 14 steps × 4 senders = 56
+    setSeqGenProgress({ current: 0, total: totalGenerations });
+    const generated: Record<number, Record<string, { subject: string; body: string }>> = {};
+    let count = 0;
+
+    // Use the first lead from each group as a representative for generation
+    const representativeLeads = SENDER_EMAILS.map(s => {
+      const leadIds = seqSenderGroups[s.email] || [];
+      return allLeads.find(l => leadIds.includes(l.id));
+    });
+
+    for (let step = 0; step < 14; step++) {
+      generated[step] = {};
+      const previousThemes = seqThemes.slice(0, step).filter(t => t.trim());
+
+      for (let si = 0; si < SENDER_EMAILS.length; si++) {
+        const sender = SENDER_EMAILS[si];
+        const repLead = representativeLeads[si] || allLeads[0];
+        if (!repLead) continue;
+
+        try {
+          const response = await fetch('/api/generate-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              lead: {
+                name: repLead.name,
+                role: repLead.role || '',
+                company: repLead.company || '',
+              },
+              sender: {
+                name: sender.name,
+                role: sender.role,
+                personality: sender.personality,
+              },
+              sequenceStep: step + 1,
+              sequenceTheme: seqThemes[step] || `Follow-up email ${step + 1}`,
+              subjectLine: seqSubjects[step] || '',
+              previousThemes,
+            }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            // Use our locked-in subject line, AI only generates the body
+            generated[step][sender.email] = { subject: seqSubjects[step] || data.subject, body: data.body };
+          } else {
+            generated[step][sender.email] = { subject: `Step ${step + 1} - ${sender.name}`, body: 'Failed to generate. Please edit manually.' };
+          }
+        } catch {
+          generated[step][sender.email] = { subject: `Step ${step + 1} - ${sender.name}`, body: 'Failed to generate. Please edit manually.' };
+        }
+
+        count++;
+        setSeqGenProgress({ current: count, total: totalGenerations });
+        // Small delay to avoid rate limits
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+
+    setSeqGeneratedEmails(generated);
+    setSeqIsGenerating(false);
+    addNotification('success', 'Emails Generated', `Generated ${count} emails for your 14-step sequence`);
+  };
+
+  // Launch the sequence campaign
+  const launchSequenceCampaign = async () => {
+    if (!user || !seqStartDate) return;
+    setSeqIsLaunching(true);
+
+    try {
+      // Calculate start datetime
+      const hour24 = seqStartPeriod === 'PM' && seqStartHour !== '12'
+        ? parseInt(seqStartHour) + 12
+        : seqStartPeriod === 'AM' && seqStartHour === '12' ? 0 : parseInt(seqStartHour);
+      const startDT = new Date(seqStartDate);
+      startDT.setHours(hour24, parseInt(seqStartMinute), 0, 0);
+
+      const campaignId = `seq-${Date.now()}`;
+      let totalInserted = 0;
+      let failedInserts = 0;
+
+      // For each step × each sender group × each lead → insert scheduled_email
+      for (let step = 0; step < 14; step++) {
+        const dayOffset = SEQ_DAY_OFFSETS[step];
+        const scheduledDate = new Date(startDT);
+        scheduledDate.setDate(scheduledDate.getDate() + dayOffset);
+
+        const templateSubject = seqSubjects[step] || `Email ${step + 1}`;
+        const templateBody = seqThemes[step] || '';
+
+        for (const sender of SENDER_EMAILS) {
+          const leadIds = seqSenderGroups[sender.email] || [];
+
+          for (const leadId of leadIds) {
+            const lead = allLeads.find(l => l.id === leadId);
+            if (!lead) continue;
+
+            // Personalize {firstName} with lead's first name
+            const firstName = lead.name.split(' ')[0] || lead.name;
+            const personalizedSubject = templateSubject.replace(/\{firstName\}/g, firstName);
+            const personalizedBody = templateBody.replace(/\{firstName\}/g, firstName);
+
+            const payload = {
+              id: crypto.randomUUID(),
+              user_id: user.id,
+              lead_id: lead.id,
+              lead_name: lead.name,
+              lead_email: lead.email,
+              lead_company: lead.company || '',
+              lead_role: lead.role || '',
+              subject: personalizedSubject,
+              body: personalizedBody,
+              scheduled_for: scheduledDate.toISOString(),
+              sender_name: sender.name,
+              sender_email: sender.email,
+              status: 'pending',
+              sequence_number: step + 1,
+              campaign_id: campaignId,
+            };
+
+            const { error } = await supabase.from('scheduled_emails').insert(payload);
+            if (error) {
+              console.error('Insert error:', error.message);
+              failedInserts++;
+            } else {
+              totalInserted++;
+            }
+          }
+        }
+      }
+
+      // Create campaign object
+      const newCampaign: Campaign = {
+        id: campaignId,
+        name: seqName,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        leadIds: seqSelectedLeads,
+        senderName: 'Split Test',
+        senderEmail: '',
+        metrics: {
+          total: totalInserted,
+          sent: 0, delivered: 0, opened: 0, clicked: 0, replied: 0, bounced: 0,
+        },
+        isSequence: true,
+        sequenceSteps: seqThemes.map((theme, i) => ({
+          step: i + 1,
+          theme,
+          dayOffset: SEQ_DAY_OFFSETS[i],
+          variants: { _template: { subject: seqSubjects[i], body: theme } },
+        })),
+        senderGroups: seqSenderGroups,
+        scheduledSend: { scheduledFor: startDT.toISOString(), timezone: 'local' },
+      };
+
+      setCampaigns(prev => [...prev, newCampaign]);
+
+      // Mark leads as in active campaign
+      const { error: markError } = await supabase
+        .from('leads')
+        .update({
+          in_campaign: true,
+          active_campaign_id: campaignId,
+          active_campaign_name: seqName,
+        })
+        .in('id', seqSelectedLeads)
+        .eq('user_id', user.id);
+
+      if (markError) {
+        console.error('Failed to mark leads as in-campaign:', markError);
+      }
+
+      setAllLeads(prev => prev.map(l =>
+        seqSelectedLeads.includes(l.id)
+          ? { ...l, inCampaign: true, activeCampaignId: campaignId, activeCampaignName: seqName }
+          : l
+      ));
+
+      addNotification('success', 'Sequence Launched!', `Scheduled ${totalInserted} emails over ${SEQ_DAY_OFFSETS[13]} days${failedInserts > 0 ? ` (${failedInserts} failed)` : ''}`);
+
+      // Reset wizard
+      setShowSequenceWizard(false);
+      setSeqStep(1);
+      setSeqName('');
+      setSeqSelectedLeads([]);
+      setSeqSenderGroups({});
+      setSeqThemes(Array(14).fill(''));
+      setSeqGeneratedEmails({});
+      setSeqStartDate('');
+    } catch (error: any) {
+      addNotification('error', 'Launch Failed', error.message);
+    } finally {
+      setSeqIsLaunching(false);
+    }
+  };
 
   // Scheduled emails management state
   const [selectedScheduledEmail, setSelectedScheduledEmail] = useState<ScheduledEmail | null>(null);
@@ -4017,6 +4319,7 @@ function CampaignsView({
               body: log.body,
               senderName: log.sender_name,
               senderEmail: log.sender_email,
+              sequenceNumber: log.sequence_number || undefined,
             };
           }));
         }
@@ -4096,6 +4399,429 @@ function CampaignsView({
   const clickRate = totalMetrics.opened > 0 ? Math.round((totalMetrics.clicked / totalMetrics.opened) * 100) : 0;
   const replyRate = totalMetrics.sent > 0 ? Math.round((totalMetrics.replied / totalMetrics.sent) * 100) : 0;
 
+  // Load activity data for a sequence campaign
+  const loadActivityData = async (campaignId: string) => {
+    if (!user) return;
+    setActivityLoading(true);
+    try {
+      const response = await fetch('/api/campaign-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaign_id: campaignId, user_id: user.id }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setActivityData(data);
+      }
+    } catch (err) {
+      console.error('Failed to load activity:', err);
+    }
+    setActivityLoading(false);
+  };
+
+  // Status color helper
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'sent': return '#3B82F6';
+      case 'delivered': return '#06B6D4';
+      case 'opened': return '#8B5CF6';
+      case 'clicked': return '#F59E0B';
+      case 'replied': return '#10B981';
+      case 'bounced': return '#EF4444';
+      case 'failed': return '#EF4444';
+      default: return '#6B7280';
+    }
+  };
+
+  // Sequence Activity Tracker render
+  if (selectedCampaign && selectedCampaign.isSequence) {
+    const logs = activityData?.email_logs || [];
+    const scheduled = activityData?.scheduled_emails || [];
+
+    // Aggregate stats from email_logs
+    const totalSent = logs.length;
+    const totalDelivered = logs.filter(l => ['delivered', 'opened', 'clicked', 'replied'].includes(l.status)).length;
+    const totalOpened = logs.filter(l => ['opened', 'clicked', 'replied'].includes(l.status)).length;
+    const totalClicked = logs.filter(l => ['clicked', 'replied'].includes(l.status)).length;
+    const totalReplied = logs.filter(l => l.status === 'replied').length;
+    const totalBounced = logs.filter(l => l.status === 'bounced').length;
+    const totalScheduled = scheduled.filter(s => s.status === 'pending').length;
+
+    // Group by step
+    const stepData: Record<number, { logs: any[]; pending: any[] }> = {};
+    for (let i = 1; i <= 14; i++) {
+      stepData[i] = {
+        logs: logs.filter(l => l.sequence_number === i),
+        pending: scheduled.filter(s => s.sequence_number === i && s.status === 'pending'),
+      };
+    }
+
+    // Group by lead
+    const leadMap: Record<string, { name: string; email: string; company: string; sender: string; logs: any[]; pending: any[] }> = {};
+    for (const log of logs) {
+      if (!leadMap[log.lead_id]) {
+        leadMap[log.lead_id] = { name: log.lead_name || '', email: log.lead_email || '', company: '', sender: log.sender_email || '', logs: [], pending: [] };
+        const lead = allLeads.find(l => l.id === log.lead_id);
+        if (lead) { leadMap[log.lead_id].company = lead.company; leadMap[log.lead_id].name = lead.name; }
+      }
+      leadMap[log.lead_id].logs.push(log);
+    }
+    for (const sch of scheduled) {
+      if (!leadMap[sch.lead_id]) {
+        leadMap[sch.lead_id] = { name: sch.lead_name || '', email: sch.lead_email || '', company: '', sender: sch.sender_email || '', logs: [], pending: [] };
+      }
+      if (sch.status === 'pending') leadMap[sch.lead_id].pending.push(sch);
+    }
+
+    // Group by sender
+    const senderData: Record<string, { logs: any[]; leads: Set<string> }> = {};
+    for (const s of SENDER_EMAILS) {
+      senderData[s.email] = { logs: [], leads: new Set() };
+    }
+    for (const log of logs) {
+      const key = log.sender_email?.toLowerCase();
+      if (key && senderData[key]) {
+        senderData[key].logs.push(log);
+        senderData[key].leads.add(log.lead_id);
+      }
+    }
+
+    return (
+      <div className="p-4 md:p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => { setSelectedCampaign(null); setActivityData(null); }}
+            className="p-2 rounded-xl hover:bg-white/10 transition-colors"
+            style={{ background: 'var(--bg-elevated)' }}
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold flex items-center gap-3">
+              <div className="p-2 rounded-xl" style={{ background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(109, 40, 217, 0.2))' }}>
+                <Zap className="w-6 h-6" style={{ color: '#8B5CF6' }} />
+              </div>
+              {selectedCampaign.name}
+            </h1>
+            <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+              {selectedCampaign.leadIds.length} leads × 14 emails • {selectedCampaign.status === 'active' ? 'Active' : selectedCampaign.status}
+            </p>
+          </div>
+          <button
+            onClick={() => loadActivityData(selectedCampaign.id)}
+            disabled={activityLoading}
+            className="px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all"
+            style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8B5CF6' }}
+          >
+            {activityLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {activityLoading ? 'Loading...' : activityData ? 'Refresh' : 'Load Activity'}
+          </button>
+          {selectedCampaign.status === 'active' && (
+            <button
+              onClick={() => {
+                if (confirm('Mark this campaign as complete? This will release all leads for future campaigns.')) {
+                  releaseCampaignLeads(selectedCampaign.id);
+                  setSelectedCampaign(null);
+                  setActivityData(null);
+                }
+              }}
+              className="px-4 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-80"
+              style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}
+            >
+              Mark Complete
+            </button>
+          )}
+        </div>
+
+        {/* Stats Dashboard */}
+        {activityData && (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            {[
+              { label: 'Scheduled', value: totalScheduled, color: '#6B7280' },
+              { label: 'Sent', value: totalSent, color: '#3B82F6' },
+              { label: 'Delivered', value: totalDelivered, color: '#06B6D4' },
+              { label: 'Opened', value: totalOpened, color: '#8B5CF6', pct: totalSent > 0 ? Math.round((totalOpened / totalSent) * 100) : 0 },
+              { label: 'Clicked', value: totalClicked, color: '#F59E0B', pct: totalOpened > 0 ? Math.round((totalClicked / totalOpened) * 100) : 0 },
+              { label: 'Replied', value: totalReplied, color: '#10B981', pct: totalSent > 0 ? Math.round((totalReplied / totalSent) * 100) : 0 },
+              { label: 'Bounced', value: totalBounced, color: '#EF4444' },
+            ].map(stat => (
+              <div key={stat.label} className="glass-card p-3 rounded-xl text-center" style={{ borderTop: `3px solid ${stat.color}` }}>
+                <p className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
+                <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>
+                  {stat.label}{stat.pct !== undefined ? ` (${stat.pct}%)` : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab Navigation */}
+        {activityData && (
+          <>
+            <div className="flex gap-2">
+              {[
+                { id: 'step' as const, label: 'By Step', icon: '📊' },
+                { id: 'lead' as const, label: 'By Lead', icon: '👤' },
+                { id: 'sender' as const, label: 'By Sender', icon: '📨' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActivityTab(tab.id)}
+                  className="px-4 py-2 rounded-xl text-sm font-bold transition-all"
+                  style={{
+                    background: activityTab === tab.id ? 'rgba(139, 92, 246, 0.2)' : 'var(--bg-elevated)',
+                    color: activityTab === tab.id ? '#8B5CF6' : 'var(--text-muted)',
+                    border: activityTab === tab.id ? '1px solid rgba(139, 92, 246, 0.3)' : '1px solid transparent',
+                  }}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* By Step Tab */}
+            {activityTab === 'step' && (
+              <div className="space-y-2">
+                {Array.from({ length: 14 }, (_, i) => i + 1).map(step => {
+                  const data = stepData[step];
+                  const sentCount = data.logs.length;
+                  const pendingCount = data.pending.length;
+                  const totalForStep = sentCount + pendingCount;
+                  const openedCount = data.logs.filter(l => ['opened', 'clicked', 'replied'].includes(l.status)).length;
+                  const clickedCount = data.logs.filter(l => ['clicked', 'replied'].includes(l.status)).length;
+                  const bouncedCount = data.logs.filter(l => l.status === 'bounced').length;
+                  const isExpanded = activityExpandedStep === step;
+                  const theme = selectedCampaign.sequenceSteps?.[step - 1]?.theme || '';
+
+                  return (
+                    <div key={step} className="glass-card rounded-xl overflow-hidden">
+                      <button
+                        onClick={() => setActivityExpandedStep(isExpanded ? null : step)}
+                        className="w-full px-4 py-3 flex items-center justify-between text-left transition-colors hover:bg-white/5"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold"
+                            style={{
+                              background: sentCount > 0 && pendingCount === 0 ? 'rgba(16, 185, 129, 0.2)' : sentCount > 0 ? 'rgba(139, 92, 246, 0.2)' : 'var(--bg-elevated)',
+                              color: sentCount > 0 && pendingCount === 0 ? '#10B981' : sentCount > 0 ? '#8B5CF6' : 'var(--text-muted)',
+                            }}
+                          >
+                            {sentCount > 0 && pendingCount === 0 ? '✓' : step}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">Email {step} — Day {SEQ_DAY_OFFSETS[step - 1]}</p>
+                            <p className="text-xs truncate max-w-md" style={{ color: 'var(--text-muted)' }}>{theme.slice(0, 80)}{theme.length > 80 ? '...' : ''}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2 text-xs">
+                            {sentCount > 0 && <span style={{ color: '#3B82F6' }}>{sentCount} sent</span>}
+                            {openedCount > 0 && <span style={{ color: '#8B5CF6' }}>{openedCount} opened</span>}
+                            {clickedCount > 0 && <span style={{ color: '#F59E0B' }}>{clickedCount} clicked</span>}
+                            {bouncedCount > 0 && <span style={{ color: '#EF4444' }}>{bouncedCount} bounced</span>}
+                            {pendingCount > 0 && <span style={{ color: '#6B7280' }}>{pendingCount} pending</span>}
+                          </div>
+                          {totalForStep > 0 && (
+                            <div className="w-20 h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
+                              <div className="h-full rounded-full" style={{ width: `${(sentCount / totalForStep) * 100}%`, background: 'linear-gradient(90deg, #8B5CF6, #6D28D9)' }} />
+                            </div>
+                          )}
+                          <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="px-4 pb-4 space-y-1">
+                          {data.logs.map((log: any) => (
+                            <div key={log.id} className="flex items-center justify-between px-3 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-surface)' }}>
+                              <div className="flex items-center gap-3">
+                                <span className="font-medium">{log.lead_name || log.lead_email}</span>
+                                <span style={{ color: 'var(--text-muted)' }}>via {log.sender_name || log.sender_email}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-0.5 rounded-full font-bold" style={{ background: `${getStatusColor(log.status)}15`, color: getStatusColor(log.status) }}>
+                                  {log.status}
+                                </span>
+                                {log.sent_at && <span style={{ color: 'var(--text-muted)' }}>{new Date(log.sent_at).toLocaleDateString()}</span>}
+                              </div>
+                            </div>
+                          ))}
+                          {data.pending.map((sch: any) => (
+                            <div key={sch.id} className="flex items-center justify-between px-3 py-2 rounded-lg text-xs opacity-60" style={{ background: 'var(--bg-surface)' }}>
+                              <div className="flex items-center gap-3">
+                                <span className="font-medium">{sch.lead_name || sch.lead_email}</span>
+                                <span style={{ color: 'var(--text-muted)' }}>via {sch.sender_name || sch.sender_email}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-0.5 rounded-full font-bold" style={{ background: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>pending</span>
+                                <span style={{ color: 'var(--text-muted)' }}>{new Date(sch.scheduled_for).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          ))}
+                          {data.logs.length === 0 && data.pending.length === 0 && (
+                            <p className="text-xs text-center py-3" style={{ color: 'var(--text-muted)' }}>No activity yet for this step</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* By Lead Tab */}
+            {activityTab === 'lead' && (
+              <div className="space-y-2">
+                {Object.entries(leadMap).map(([leadId, data]) => {
+                  const isExpanded = activityExpandedLead === leadId;
+                  const senderInfo = SENDER_EMAILS.find(s => s.email.toLowerCase() === data.sender.toLowerCase());
+                  const highestStep = Math.max(0, ...data.logs.map((l: any) => l.sequence_number || 0));
+
+                  return (
+                    <div key={leadId} className="glass-card rounded-xl overflow-hidden">
+                      <button
+                        onClick={() => setActivityExpandedLead(isExpanded ? null : leadId)}
+                        className="w-full px-4 py-3 flex items-center justify-between text-left transition-colors hover:bg-white/5"
+                      >
+                        <div className="flex items-center gap-3">
+                          {senderInfo && <img src={senderInfo.photo} alt={senderInfo.name} className="w-8 h-8 rounded-full" />}
+                          <div>
+                            <p className="text-sm font-medium">{data.name || data.email}</p>
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{data.company} • Sender: {senderInfo?.name || data.sender}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {/* 14-dot progress */}
+                          <div className="flex gap-1">
+                            {Array.from({ length: 14 }, (_, i) => {
+                              const stepNum = i + 1;
+                              const log = data.logs.find((l: any) => l.sequence_number === stepNum);
+                              const isPending = data.pending.some((p: any) => p.sequence_number === stepNum);
+                              const color = log ? getStatusColor(log.status) : isPending ? '#374151' : '#1F2937';
+                              return (
+                                <div
+                                  key={i}
+                                  className="w-2.5 h-2.5 rounded-full"
+                                  style={{ background: color }}
+                                  title={`Step ${stepNum}: ${log ? log.status : isPending ? 'pending' : 'not scheduled'}`}
+                                />
+                              );
+                            })}
+                          </div>
+                          <span className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>{highestStep}/14</span>
+                          <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="px-4 pb-4 space-y-1">
+                          {Array.from({ length: 14 }, (_, i) => {
+                            const stepNum = i + 1;
+                            const log = data.logs.find((l: any) => l.sequence_number === stepNum);
+                            const pending = data.pending.find((p: any) => p.sequence_number === stepNum);
+                            return (
+                              <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-surface)' }}>
+                                <div className="flex items-center gap-3">
+                                  <span className="font-bold w-6" style={{ color: '#8B5CF6' }}>#{stepNum}</span>
+                                  <span className="truncate max-w-xs">{log?.subject || pending?.subject || '—'}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {log ? (
+                                    <>
+                                      <span className="px-2 py-0.5 rounded-full font-bold" style={{ background: `${getStatusColor(log.status)}15`, color: getStatusColor(log.status) }}>{log.status}</span>
+                                      <span style={{ color: 'var(--text-muted)' }}>{new Date(log.sent_at).toLocaleDateString()}</span>
+                                    </>
+                                  ) : pending ? (
+                                    <>
+                                      <span className="px-2 py-0.5 rounded-full font-bold" style={{ background: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>pending</span>
+                                      <span style={{ color: 'var(--text-muted)' }}>{new Date(pending.scheduled_for).toLocaleDateString()}</span>
+                                    </>
+                                  ) : (
+                                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {Object.keys(leadMap).length === 0 && (
+                  <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>No lead activity yet. Click "Load Activity" to fetch data.</p>
+                )}
+              </div>
+            )}
+
+            {/* By Sender Tab */}
+            {activityTab === 'sender' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {SENDER_EMAILS.map(sender => {
+                  const data = senderData[sender.email.toLowerCase()] || { logs: [], leads: new Set() };
+                  const sLogs = data.logs;
+                  const sent = sLogs.length;
+                  const delivered = sLogs.filter((l: any) => ['delivered', 'opened', 'clicked', 'replied'].includes(l.status)).length;
+                  const opened = sLogs.filter((l: any) => ['opened', 'clicked', 'replied'].includes(l.status)).length;
+                  const clicked = sLogs.filter((l: any) => ['clicked', 'replied'].includes(l.status)).length;
+                  const replied = sLogs.filter((l: any) => l.status === 'replied').length;
+                  const bounced = sLogs.filter((l: any) => l.status === 'bounced').length;
+                  const openRateSender = sent > 0 ? Math.round((opened / sent) * 100) : 0;
+                  const clickRateSender = opened > 0 ? Math.round((clicked / opened) * 100) : 0;
+                  const replyRateSender = sent > 0 ? Math.round((replied / sent) * 100) : 0;
+                  const groupLeadCount = (selectedCampaign.senderGroups?.[sender.email] || []).length;
+
+                  return (
+                    <div key={sender.email} className="glass-card p-5 rounded-2xl" style={{ borderLeft: `3px solid ${sender.color}` }}>
+                      <div className="flex items-center gap-3 mb-4">
+                        <img src={sender.photo} alt={sender.name} className="w-12 h-12 rounded-full object-cover" />
+                        <div>
+                          <p className="font-bold">{sender.name}</p>
+                          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{sender.role} • {groupLeadCount} leads</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                        <div className="p-2 rounded-lg" style={{ background: 'var(--bg-surface)' }}>
+                          <p className="text-lg font-bold" style={{ color: '#3B82F6' }}>{sent}</p>
+                          <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Sent</p>
+                        </div>
+                        <div className="p-2 rounded-lg" style={{ background: 'var(--bg-surface)' }}>
+                          <p className="text-lg font-bold" style={{ color: '#8B5CF6' }}>{opened}</p>
+                          <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Opened</p>
+                        </div>
+                        <div className="p-2 rounded-lg" style={{ background: 'var(--bg-surface)' }}>
+                          <p className="text-lg font-bold" style={{ color: '#10B981' }}>{replied}</p>
+                          <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Replied</p>
+                        </div>
+                      </div>
+                      <div className="flex justify-between text-xs px-1">
+                        <span>Open: <strong style={{ color: '#8B5CF6' }}>{openRateSender}%</strong></span>
+                        <span>Click: <strong style={{ color: '#F59E0B' }}>{clickRateSender}%</strong></span>
+                        <span>Reply: <strong style={{ color: '#10B981' }}>{replyRateSender}%</strong></span>
+                      </div>
+                      {bounced > 0 && (
+                        <p className="text-xs mt-2 text-center" style={{ color: '#EF4444' }}>{bounced} bounced</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* No data state */}
+        {!activityData && !activityLoading && (
+          <div className="glass-card p-12 rounded-2xl text-center">
+            <BarChart3 className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-muted)' }} />
+            <h3 className="text-lg font-bold mb-2">Campaign Activity</h3>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>Click "Load Activity" to see detailed email tracking for this sequence.</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
@@ -4126,6 +4852,14 @@ function CampaignsView({
           >
             <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
             {isRefreshing ? 'Refreshing...' : 'Refresh Metrics'}
+          </button>
+          <button
+            onClick={() => { setShowSequenceWizard(true); setSeqStep(1); }}
+            className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 justify-center transition-all"
+            style={{ background: 'linear-gradient(135deg, #8B5CF6, #6D28D9)', color: '#fff' }}
+          >
+            <Zap className="w-4 h-4" />
+            New Sequence
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
@@ -4467,13 +5201,31 @@ function CampaignsView({
               <div
                 key={campaign.id}
                 className="glass-card p-4 hover:shadow-lg transition-all cursor-pointer group"
-                onClick={() => setSelectedCampaign(campaign)}
+                onClick={() => {
+                  setSelectedCampaign(campaign);
+                  if (campaign.isSequence) {
+                    setActivityData(null);
+                    setActivityTab('step');
+                    setActivityExpandedStep(null);
+                    setActivityExpandedLead(null);
+                    loadActivityData(campaign.id);
+                  }
+                }}
+                style={campaign.isSequence ? { borderLeft: '3px solid #8B5CF6' } : undefined}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
-                    <h3 className="font-bold text-lg mb-1">{campaign.name}</h3>
+                    <div className="flex items-center gap-2 mb-1">
+                      {campaign.isSequence && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: 'rgba(139, 92, 246, 0.2)', color: '#8B5CF6' }}>
+                          SEQUENCE
+                        </span>
+                      )}
+                      <h3 className="font-bold text-lg">{campaign.name}</h3>
+                    </div>
                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                       Created {new Date(campaign.createdAt).toLocaleDateString()}
+                      {campaign.isSequence && ` — 14 emails × ${campaign.leadIds.length} leads`}
                     </p>
                   </div>
                   <span
@@ -4488,6 +5240,21 @@ function CampaignsView({
                     {campaign.status}
                   </span>
                 </div>
+
+                {campaign.isSequence && campaign.senderGroups && (
+                  <div className="flex gap-2 mb-3">
+                    {SENDER_EMAILS.map(s => {
+                      const count = (campaign.senderGroups?.[s.email] || []).length;
+                      if (count === 0) return null;
+                      return (
+                        <div key={s.email} className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold" style={{ background: `${s.color}15`, color: s.color }}>
+                          <img src={s.photo} alt={s.name} className="w-4 h-4 rounded-full" />
+                          {s.name}: {count}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-4 gap-2 text-center">
                   <div>
@@ -4507,6 +5274,23 @@ function CampaignsView({
                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Replies</p>
                   </div>
                 </div>
+
+                {campaign.isSequence && campaign.status === 'active' && (
+                  <div className="flex justify-end mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm('Mark this campaign as complete? This will release all leads for future campaigns.')) {
+                          releaseCampaignLeads(campaign.id);
+                        }
+                      }}
+                      className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
+                      style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}
+                    >
+                      Mark Complete
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -5238,6 +6022,305 @@ function CampaignsView({
         </div>
       )}
 
+      {/* Sequence Campaign Wizard */}
+      {showSequenceWizard && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4 overflow-y-auto">
+          <div className="glass-card p-6 md:p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto my-4">
+            {/* Wizard Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold font-display flex items-center gap-3">
+                  <div className="p-2 rounded-xl" style={{ background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(109, 40, 217, 0.2))' }}>
+                    <Zap className="w-5 h-5" style={{ color: '#8B5CF6' }} />
+                  </div>
+                  14-Email Sequence
+                </h2>
+                <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                  Step {seqStep} of 4 — {['Name & Leads', 'Sender Split', 'Email Content', 'Launch'][seqStep - 1]}
+                </p>
+              </div>
+              <button onClick={() => setShowSequenceWizard(false)} className="p-2 rounded-lg hover:bg-white/10 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="flex gap-1 mb-8">
+              {[1, 2, 3, 4].map(s => (
+                <div
+                  key={s}
+                  className="h-1.5 flex-1 rounded-full transition-all duration-300"
+                  style={{ background: s <= seqStep ? 'linear-gradient(90deg, #8B5CF6, #6D28D9)' : 'var(--bg-elevated)' }}
+                />
+              ))}
+            </div>
+
+            {/* Step 1: Name & Select Leads */}
+            {seqStep === 1 && (
+              <div className="space-y-6">
+                <div>
+                  <label className="text-sm font-bold mb-2 block" style={{ color: 'var(--text-secondary)' }}>Campaign Name</label>
+                  <input
+                    type="text"
+                    value={seqName}
+                    onChange={(e) => setSeqName(e.target.value)}
+                    placeholder="e.g., Q2 CPA Drip Sequence"
+                    className="w-full px-4 py-3 rounded-xl outline-none text-sm"
+                    style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-bold" style={{ color: 'var(--text-secondary)' }}>Select Leads ({seqSelectedLeads.length} selected)</label>
+                    <button
+                      onClick={() => {
+                        const availableFavIds = allLeads.filter(l => l.isFavorite && !l.inCampaign).map(l => l.id);
+                        setSeqSelectedLeads(seqSelectedLeads.length === availableFavIds.length ? [] : availableFavIds);
+                      }}
+                      className="text-xs font-bold px-3 py-1 rounded-lg transition-all"
+                      style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8B5CF6' }}
+                    >
+                      {seqSelectedLeads.length === allLeads.filter(l => l.isFavorite && !l.inCampaign).length && seqSelectedLeads.length > 0 ? 'Deselect All' : 'Select All Available'}
+                    </button>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto space-y-1 rounded-xl p-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
+                    {allLeads.filter(l => l.isFavorite).length === 0 && (
+                      <p className="text-sm py-4 text-center" style={{ color: 'var(--text-muted)' }}>No favorited leads found. Favorite some leads first!</p>
+                    )}
+                    {/* Available favorites */}
+                    {allLeads.filter(l => l.isFavorite && !l.inCampaign).length > 0 && (
+                      <p className="text-[10px] font-bold uppercase tracking-wider px-3 pt-2 pb-1" style={{ color: '#10B981' }}>
+                        Available ({allLeads.filter(l => l.isFavorite && !l.inCampaign).length})
+                      </p>
+                    )}
+                    {allLeads.filter(l => l.isFavorite && !l.inCampaign).map(lead => (
+                      <label
+                        key={lead.id}
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={seqSelectedLeads.includes(lead.id)}
+                          onChange={(e) => {
+                            setSeqSelectedLeads(prev =>
+                              e.target.checked ? [...prev, lead.id] : prev.filter(id => id !== lead.id)
+                            );
+                          }}
+                          className="rounded"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{lead.name}</p>
+                          <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{lead.company} — {lead.email}</p>
+                        </div>
+                      </label>
+                    ))}
+                    {/* In-campaign favorites (disabled) */}
+                    {allLeads.filter(l => l.isFavorite && l.inCampaign).length > 0 && (
+                      <>
+                        <div className="border-t my-2" style={{ borderColor: 'var(--border-color)' }} />
+                        <p className="text-[10px] font-bold uppercase tracking-wider px-3 pt-1 pb-1" style={{ color: '#F59E0B' }}>
+                          In Active Campaign ({allLeads.filter(l => l.isFavorite && l.inCampaign).length})
+                        </p>
+                        {allLeads.filter(l => l.isFavorite && l.inCampaign).map(lead => (
+                          <div key={lead.id} className="flex items-center gap-3 px-3 py-2 rounded-lg opacity-50 cursor-not-allowed">
+                            <input type="checkbox" disabled className="rounded opacity-30" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{lead.name}</p>
+                              <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{lead.company} — {lead.email}</p>
+                            </div>
+                            <span className="px-2 py-0.5 rounded text-[9px] font-bold flex-shrink-0" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' }}>
+                              {lead.activeCampaignName || 'In Campaign'}
+                            </span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Sender Split Preview */}
+            {seqStep === 2 && (
+              <div className="space-y-6">
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  Your {seqSelectedLeads.length} leads have been split into 4 groups. Each group will receive all 14 emails from their assigned sender.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {SENDER_EMAILS.map(sender => {
+                    const groupLeads = (seqSenderGroups[sender.email] || []).map(id => allLeads.find(l => l.id === id)).filter(Boolean);
+                    return (
+                      <div key={sender.email} className="glass-card p-4 rounded-2xl" style={{ borderLeft: `3px solid ${sender.color}` }}>
+                        <div className="flex items-center gap-3 mb-3">
+                          <img src={sender.photo} alt={sender.name} className="w-10 h-10 rounded-full object-cover" />
+                          <div>
+                            <p className="font-bold text-sm">{sender.name}</p>
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{sender.role} — {groupLeads.length} leads</p>
+                          </div>
+                        </div>
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {groupLeads.map((lead: any) => (
+                            <p key={lead.id} className="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)' }}>
+                              {lead.name} — {lead.company}
+                            </p>
+                          ))}
+                          {groupLeads.length === 0 && (
+                            <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>No leads in this group</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Email Preview */}
+            {seqStep === 3 && (
+              <div className="space-y-4">
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  Your 14-email sequence is ready. Each email will be personalized with <strong style={{ color: '#8B5CF6' }}>{'{firstName}'}</strong> for every lead.
+                </p>
+                <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-2">
+                  {SEQUENCE_EMAIL_CONFIG.map((email, i) => (
+                    <div key={i} className="glass-card rounded-xl p-3" style={{ borderLeft: `3px solid ${i < 2 ? '#3B82F6' : i < 5 ? '#8B5CF6' : i < 8 ? '#F59E0B' : i < 11 ? '#EC4899' : '#EF4444'}` }}>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-shrink-0 w-14 text-center">
+                          <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mx-auto" style={{ background: 'rgba(139, 92, 246, 0.2)', color: '#8B5CF6' }}>{i + 1}</div>
+                          <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>Day {SEQ_DAY_OFFSETS[i]}</p>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{email.subject}</p>
+                          <p className="text-xs mt-0.5 line-clamp-2" style={{ color: 'var(--text-muted)' }}>{email.theme}</p>
+                        </div>
+                        <CheckCircle2 className="w-4 h-4 flex-shrink-0" style={{ color: '#22C55E' }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Launch */}
+            {seqStep === 4 && (
+              <div className="space-y-6">
+                <div className="glass-card p-6 rounded-2xl text-center" style={{ borderTop: '3px solid #8B5CF6' }}>
+                  <Zap className="w-10 h-10 mx-auto mb-3" style={{ color: '#8B5CF6' }} />
+                  <h3 className="text-xl font-bold mb-2">Ready to Launch</h3>
+                  <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+                    {seqSelectedLeads.length} leads × 14 emails = <strong>{seqSelectedLeads.length * 14} total emails</strong> over {SEQ_DAY_OFFSETS[13]} days
+                  </p>
+                  <div className="flex flex-wrap gap-3 justify-center mb-6">
+                    {SENDER_EMAILS.map(s => (
+                      <div key={s.email} className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: `${s.color}15`, color: s.color }}>
+                        <img src={s.photo} alt={s.name} className="w-5 h-5 rounded-full" />
+                        {s.name}: {(seqSenderGroups[s.email] || []).length} leads
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-bold mb-2 block" style={{ color: 'var(--text-secondary)' }}>Start Date & Time</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="date"
+                      value={seqStartDate}
+                      onChange={(e) => setSeqStartDate(e.target.value)}
+                      className="flex-1 px-3 py-2.5 rounded-xl outline-none text-sm"
+                      style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                    />
+                    <select value={seqStartHour} onChange={(e) => setSeqStartHour(e.target.value)} className="px-2 py-2.5 rounded-xl outline-none text-sm" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                    <span className="font-bold">:</span>
+                    <select value={seqStartMinute} onChange={(e) => setSeqStartMinute(e.target.value)} className="px-2 py-2.5 rounded-xl outline-none text-sm" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
+                      {['00', '15', '30', '45'].map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                    <select value={seqStartPeriod} onChange={(e) => setSeqStartPeriod(e.target.value)} className="px-2 py-2.5 rounded-xl outline-none text-sm" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Timeline Preview */}
+                <div>
+                  <label className="text-sm font-bold mb-2 block" style={{ color: 'var(--text-secondary)' }}>Timeline Preview</label>
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {SEQ_DAY_OFFSETS.map((day, i) => {
+                      const date = seqStartDate ? new Date(seqStartDate) : new Date();
+                      date.setDate(date.getDate() + day);
+                      return (
+                        <div key={i} className="p-2 rounded-lg text-xs" style={{ background: 'var(--bg-surface)' }}>
+                          <p className="font-bold" style={{ color: '#8B5CF6' }}>#{i + 1}</p>
+                          <p style={{ color: 'var(--text-muted)' }}>{date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Navigation Buttons */}
+            <div className="flex items-center justify-between mt-8 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <button
+                onClick={() => setSeqStep(Math.max(1, seqStep - 1))}
+                disabled={seqStep === 1}
+                className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-all disabled:opacity-30"
+                style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Back
+              </button>
+
+              {seqStep < 4 ? (
+                <button
+                  onClick={() => {
+                    // Validate current step before advancing
+                    if (seqStep === 1 && (!seqName || seqSelectedLeads.length === 0)) {
+                      addNotification('warning', 'Missing Info', 'Please enter a name and select leads');
+                      return;
+                    }
+                    if (seqStep === 1) {
+                      // Auto-split when moving to step 2
+                      setSeqSenderGroups(splitLeadsIntoGroups(seqSelectedLeads));
+                    }
+                    setSeqStep(seqStep + 1);
+                  }}
+                  className="px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all"
+                  style={{ background: 'linear-gradient(135deg, #8B5CF6, #6D28D9)', color: '#fff' }}
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  onClick={launchSequenceCampaign}
+                  disabled={!seqStartDate || seqIsLaunching}
+                  className="px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #10B981, #059669)', color: '#fff' }}
+                >
+                  {seqIsLaunching ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Launching...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      Launch Sequence
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Email Preview Modal (Feature 5) */}
       {showPreview && selectedLeadsForCampaign.length > 0 && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
@@ -5624,6 +6707,7 @@ function EmailTrackingView({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmail, setSelectedEmail] = useState<EmailLog | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [showBouncedOnly, setShowBouncedOnly] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
@@ -5707,6 +6791,7 @@ function EmailTrackingView({
               body: log.body,
               senderName: log.sender_name,
               senderEmail: log.sender_email,
+              sequenceNumber: log.sequence_number || undefined,
             };
           }));
           addNotification('success', 'Tracking Updated', `Loaded ${logsData.length} emails`);
@@ -5718,6 +6803,31 @@ function EmailTrackingView({
       console.error('Failed to refresh tracking:', error);
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  // Sync statuses from Resend API (pulls real open/click/bounce data)
+  const syncStatuses = async () => {
+    if (!user) return;
+    setIsSyncing(true);
+    try {
+      const response = await fetch('/api/sync-email-statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id }),
+      });
+      const result = await response.json();
+      if (response.ok) {
+        addNotification('success', 'Statuses Synced', `Updated ${result.updated} email statuses from Resend`);
+        // Refresh tracking data to show updated statuses
+        await refreshTracking();
+      } else {
+        addNotification('error', 'Sync Failed', result.error || 'Failed to sync statuses');
+      }
+    } catch (error: any) {
+      addNotification('error', 'Sync Failed', error.message);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -5793,14 +6903,29 @@ function EmailTrackingView({
             Real-time delivery tracking powered by Resend webhooks
           </p>
         </div>
-        <button
-          onClick={refreshTracking}
-          disabled={isRefreshing}
-          className="nexli-btn-gradient px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg disabled:opacity-50"
-        >
-          <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
-          {isRefreshing ? 'Refreshing...' : 'Refresh Tracking'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={syncStatuses}
+            disabled={isSyncing}
+            className="px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg disabled:opacity-50 transition-all duration-200"
+            style={{
+              background: 'linear-gradient(135deg, #8B5CF6, #6D28D9)',
+              color: '#ffffff',
+            }}
+            title="Pull latest open/click/bounce statuses from Resend"
+          >
+            <Zap className={cn('w-4 h-4', isSyncing && 'animate-pulse')} />
+            {isSyncing ? 'Syncing...' : 'Sync Statuses'}
+          </button>
+          <button
+            onClick={refreshTracking}
+            disabled={isRefreshing}
+            className="nexli-btn-gradient px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg disabled:opacity-50"
+          >
+            <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -6385,6 +7510,11 @@ export default function App() {
     return true; // Default to dark mode
   });
 
+  // Lead editing state
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [editForm, setEditForm] = useState<{ name: string; company: string; email: string; role: string; phone: string; notes: string }>({ name: '', company: '', email: '', role: '', phone: '', notes: '' });
+  const [isSavingLead, setIsSavingLead] = useState(false);
+
   // Email generation state for My Leads view
   const [selectedLeadForEmail, setSelectedLeadForEmail] = useState<Lead | null>(null);
   const [generatedEmailForLead, setGeneratedEmailForLead] = useState<{ subject: string; body: string } | null>(null);
@@ -6581,6 +7711,7 @@ export default function App() {
                   body: log.body,
                   senderName: log.sender_name,
                   senderEmail: log.sender_email,
+                  sequenceNumber: log.sequence_number || undefined,
                 })));
               }
             }
@@ -6718,6 +7849,7 @@ export default function App() {
               body: log.body,
               senderName: log.sender_name,
               senderEmail: log.sender_email,
+              sequenceNumber: (log as any).sequence_number || undefined,
             })));
           }
 
@@ -6838,6 +7970,10 @@ export default function App() {
             status: dbLead.status || 'new',
             tags: dbLead.tags || [],
             isFavorite: dbLead.is_favorite || false,
+            notes: dbLead.notes || undefined,
+            inCampaign: dbLead.in_campaign || false,
+            activeCampaignId: dbLead.active_campaign_id || undefined,
+            activeCampaignName: dbLead.active_campaign_name || undefined,
             googleRating: dbLead.google_rating,
             googleReviewCount: dbLead.google_review_count,
             createdAt: dbLead.created_at,
@@ -7344,6 +8480,69 @@ export default function App() {
       }
     } catch (error) {
       console.error('Error updating favorite:', error);
+    }
+  };
+
+  // Open lead edit modal
+  const handleEditLead = (lead: Lead) => {
+    setEditingLead(lead);
+    setEditForm({
+      name: lead.name || '',
+      company: lead.company || '',
+      email: lead.email || '',
+      role: lead.role || '',
+      phone: lead.phone || '',
+      notes: lead.notes || '',
+    });
+  };
+
+  // Save lead edits to Supabase + local state
+  const handleSaveLeadEdit = async () => {
+    if (!user || !editingLead) return;
+    setIsSavingLead(true);
+
+    const updates = {
+      name: editForm.name.trim(),
+      company: editForm.company.trim(),
+      email: editForm.email.trim(),
+      role: editForm.role.trim(),
+      phone: editForm.phone.trim() || null,
+      notes: editForm.notes.trim() || null,
+    };
+
+    // Optimistic update
+    setAllLeads(prev => prev.map(l =>
+      l.id === editingLead.id
+        ? { ...l, ...updates, phone: updates.phone || undefined, notes: updates.notes || undefined }
+        : l
+    ));
+
+    try {
+      const { error } = await supabase
+        .from('leads')
+        .update(updates)
+        .eq('id', editingLead.id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Failed to update lead:', error);
+        // Revert optimistic update
+        setAllLeads(prev => prev.map(l =>
+          l.id === editingLead.id ? editingLead : l
+        ));
+        addNotification('error', 'Update Failed', 'Could not save lead changes', 'alert-circle');
+      } else {
+        addNotification('success', 'Lead Updated', `${updates.name} has been updated`, 'check-circle');
+      }
+    } catch (error) {
+      console.error('Error saving lead:', error);
+      setAllLeads(prev => prev.map(l =>
+        l.id === editingLead.id ? editingLead : l
+      ));
+      addNotification('error', 'Update Failed', 'Could not save lead changes', 'alert-circle');
+    } finally {
+      setIsSavingLead(false);
+      setEditingLead(null);
     }
   };
 
@@ -8422,7 +9621,7 @@ export default function App() {
                         {favoritesFilter === 'favorites-only' ? '⭐' : favoritesFilter === 'exclude-favorites' ? '⛔' : '☆'}
                       </span>
                       <span className="hidden sm:inline">
-                        {favoritesFilter === 'all' && `All Leads (${allLeads.filter(l => l.isFavorite).length} ⭐)`}
+                        {favoritesFilter === 'all' && `All Leads (${allLeads.filter(l => l.isFavorite && !l.inCampaign).length} ⭐ available${allLeads.filter(l => l.isFavorite && l.inCampaign).length > 0 ? `, ${allLeads.filter(l => l.isFavorite && l.inCampaign).length} in flow` : ''})`}
                         {favoritesFilter === 'favorites-only' && `Favorites Only (${allLeads.filter(l => l.isFavorite).length})`}
                         {favoritesFilter === 'exclude-favorites' && `Exclude Favorites (${allLeads.filter(l => !l.isFavorite).length})`}
                       </span>
@@ -8607,6 +9806,15 @@ export default function App() {
                                     >
                                       <span className="text-base">{lead.isFavorite ? '⭐' : '☆'}</span>
                                     </button>
+                                    {lead.inCampaign && (
+                                      <span
+                                        className="px-1.5 py-0.5 rounded text-[8px] font-bold"
+                                        style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8B5CF6' }}
+                                        title={`In campaign: ${lead.activeCampaignName || 'Active'}`}
+                                      >
+                                        IN FLOW
+                                      </span>
+                                    )}
                                   </div>
                                   {lead.tags && lead.tags.length > 0 && (
                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -8695,6 +9903,22 @@ export default function App() {
                                     </button>
                                   )}
                                   <button
+                                    onClick={() => handleEditLead(lead)}
+                                    className="opacity-0 group-hover:opacity-100 p-2 rounded-lg transition-all"
+                                    style={{ color: 'var(--text-muted)' }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = 'var(--bg-elevated)';
+                                      e.currentTarget.style.color = 'var(--text-primary)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = 'transparent';
+                                      e.currentTarget.style.color = 'var(--text-muted)';
+                                    }}
+                                    title="Edit lead"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button
                                     className="p-2 rounded-lg transition-all"
                                     style={{ color: 'var(--text-muted)' }}
                                     onMouseEnter={(e) =>
@@ -8754,6 +9978,7 @@ export default function App() {
                   emailLogs={emailLogs}
                   setEmailLogs={setEmailLogs}
                   allLeads={allLeads}
+                  setAllLeads={setAllLeads}
                   emailTemplates={emailTemplates}
                   scheduledCampaigns={scheduledCampaigns}
                   setScheduledCampaigns={setScheduledCampaigns}
@@ -9257,6 +10482,133 @@ export default function App() {
             canSend={!!generatedEmailForLead && !isGeneratingEmailForLead}
             isSending={isSendingEmailForLead}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Lead Edit Modal */}
+      <AnimatePresence>
+        {editingLead && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setEditingLead(null)}>
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-md"></div>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl"
+              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="relative nexli-gradient-bg p-6 overflow-hidden">
+                <div className="absolute inset-0 opacity-10">
+                  <div className="absolute -top-20 -right-20 w-64 h-64 bg-white rounded-full blur-3xl"></div>
+                </div>
+                <div className="relative flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-white">Edit Lead</h3>
+                    <p className="text-white/70 text-sm mt-1">{editingLead.email}</p>
+                  </div>
+                  <button
+                    onClick={() => setEditingLead(null)}
+                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors"
+                  >
+                    <X className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Form */}
+              <div className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Full Name</label>
+                    <input
+                      type="text"
+                      value={editForm.name}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl text-sm transition-all"
+                      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Business Name</label>
+                    <input
+                      type="text"
+                      value={editForm.company}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, company: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl text-sm transition-all"
+                      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Email Address</label>
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm transition-all"
+                    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Role / Title</label>
+                    <input
+                      type="text"
+                      value={editForm.role}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, role: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl text-sm transition-all"
+                      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Phone</label>
+                    <input
+                      type="tel"
+                      value={editForm.phone}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, phone: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl text-sm transition-all"
+                      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Notes</label>
+                  <textarea
+                    value={editForm.notes}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
+                    placeholder="Add notes about this lead..."
+                    rows={3}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm transition-all resize-none"
+                    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 pb-6 flex gap-3 justify-end">
+                <button
+                  onClick={() => setEditingLead(null)}
+                  className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                  style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveLeadEdit}
+                  disabled={isSavingLead || !editForm.name.trim() || !editForm.email.trim()}
+                  className="px-5 py-2.5 rounded-xl text-sm font-bold nexli-gradient-bg text-white transition-all disabled:opacity-50"
+                >
+                  {isSavingLead ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

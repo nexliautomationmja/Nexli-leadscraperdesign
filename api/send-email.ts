@@ -232,7 +232,7 @@ async function handleScheduledEmails(res: VercelResponse) {
         // Log to email_logs with Resend ID for webhook tracking
         const { error: logError } = await supabase.from('email_logs').insert({
           user_id: email.user_id,
-          campaign_id: null,
+          campaign_id: email.campaign_id || null,
           lead_id: email.lead_id,
           lead_name: email.lead_name || '',
           lead_email: email.lead_email,
@@ -243,6 +243,7 @@ async function handleScheduledEmails(res: VercelResponse) {
           sender_name: email.sender_name,
           sender_email: email.sender_email,
           resend_id: resendResult.id,
+          sequence_number: email.sequence_number || null,
         });
 
         let emailLogStatus = 'saved';
@@ -251,7 +252,7 @@ async function handleScheduledEmails(res: VercelResponse) {
           // Try without newer columns in case migration hasn't run
           const { error: fallbackError } = await supabase.from('email_logs').insert({
             user_id: email.user_id,
-            campaign_id: null,
+            campaign_id: email.campaign_id || null,
             lead_id: email.lead_id,
             subject: email.subject,
             body: email.body,
@@ -259,6 +260,7 @@ async function handleScheduledEmails(res: VercelResponse) {
             sent_at: new Date().toISOString(),
             sender_name: email.sender_name,
             sender_email: email.sender_email,
+            resend_id: resendResult.id,
           });
           emailLogStatus = fallbackError
             ? `both_failed: ${logError.message} / ${fallbackError.message}`

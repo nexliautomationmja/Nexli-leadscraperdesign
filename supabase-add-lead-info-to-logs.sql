@@ -13,7 +13,7 @@ SET
   lead_name = l.name,
   lead_email = l.email
 FROM public.leads l
-WHERE el.lead_id = l.id::text
+WHERE el.lead_id::uuid = l.id
   AND (el.lead_name IS NULL OR el.lead_email IS NULL);
 
 -- Verify
