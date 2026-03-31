@@ -4028,12 +4028,15 @@ function CampaignsView({
           : l
       ));
 
-      // 3. Remove campaign from local state
+      // 3. Delete campaign from Supabase
+      await supabase.from('campaigns').delete().eq('id', campaignId).eq('user_id', user.id);
+
+      // 4. Remove campaign from local state
       setCampaigns(prev => prev.filter(c => c.id !== campaignId));
       setSelectedCampaign(null);
       setActivityData(null);
 
-      addNotification('success', 'Campaign Deleted', `Cancelled ${cancelledCount} pending emails and released ${campaignLeadIds.length} leads`);
+      addNotification('success', 'Campaign Deleted', 'Campaign deleted, emails cancelled, and leads released');
     } catch (error) {
       console.error('Error deleting campaign:', error);
       addNotification('error', 'Delete Failed', 'Something went wrong while deleting the campaign');
@@ -4209,6 +4212,13 @@ function CampaignsView({
         senderGroups: seqSenderGroups,
         scheduledSend: { scheduledFor: startDT.toISOString(), timezone: 'local' },
       };
+
+      // Save campaign to Supabase
+      await supabase.from('campaigns').insert({
+        id: campaignId,
+        user_id: user.id,
+        data: newCampaign,
+      });
 
       setCampaigns(prev => [...prev, newCampaign]);
 
@@ -7518,11 +7528,8 @@ export default function App() {
   });
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
 
-  // Campaign state with localStorage persistence
-  const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
-    const stored = localStorage.getItem('nexli-campaigns');
-    return stored ? JSON.parse(stored) : [];
-  });
+  // Campaign state (persisted to Supabase)
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>(() => {
     const stored = localStorage.getItem('nexli-email-logs');
@@ -7645,10 +7652,28 @@ export default function App() {
     localStorage.setItem('nexli-active-tab', activeTab);
   }, [activeTab]);
 
-  // Persist campaigns to localStorage
+  // Sync campaigns to Supabase whenever they change
+  const campaignsLoadedRef = React.useRef(false);
   useEffect(() => {
-    localStorage.setItem('nexli-campaigns', JSON.stringify(campaigns));
-  }, [campaigns]);
+    if (!user || loading) return;
+    // Skip the initial render (campaigns loaded FROM Supabase)
+    if (!campaignsLoadedRef.current) {
+      campaignsLoadedRef.current = true;
+      return;
+    }
+    // Sync all campaigns to Supabase
+    const syncCampaigns = async () => {
+      for (const campaign of campaigns) {
+        await supabase.from('campaigns').upsert({
+          id: campaign.id,
+          user_id: user.id,
+          data: campaign,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    };
+    syncCampaigns();
+  }, [campaigns, user, loading]);
 
   // Persist email logs to localStorage
   useEffect(() => {
@@ -7869,37 +7894,6 @@ export default function App() {
             })));
           }
 
-          // Load campaigns from database
-          const { data: campaignsData } = await supabase
-            .from('campaigns')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .order('created_at', { ascending: false });
-
-          if (campaignsData) {
-            setCampaigns(campaignsData.map(campaign => ({
-              id: campaign.id,
-              name: campaign.name,
-              createdAt: campaign.created_at,
-              status: campaign.status as any,
-              leadIds: [],
-              senderName: '',
-              senderEmail: '',
-              metrics: {
-                total: campaign.total_leads,
-                sent: campaign.emails_sent,
-                delivered: 0,
-                opened: campaign.opens,
-                clicked: 0,
-                replied: campaign.replies,
-                bounced: 0,
-              },
-              followUpSequence: campaign.follow_up_sequence,
-              abTest: campaign.ab_test,
-              scheduledSend: campaign.scheduled_send,
-            })));
-          }
-
           // Load email templates from database
           const { data: templatesData } = await supabase
             .from('email_templates')
@@ -7976,6 +7970,36 @@ export default function App() {
               createdAt: email.created_at,
               campaignId: email.campaign_id || undefined,
             })));
+          }
+
+          // Load campaigns from Supabase
+          const { data: campaignsData } = await supabase
+            .from('campaigns')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false });
+
+          if (campaignsData && campaignsData.length > 0) {
+            setCampaigns(campaignsData.map((row: any) => row.data as Campaign));
+          } else {
+            // Migrate from localStorage if exists
+            const stored = localStorage.getItem('nexli-campaigns');
+            if (stored) {
+              const localCampaigns: Campaign[] = JSON.parse(stored);
+              if (localCampaigns.length > 0) {
+                // Save to Supabase
+                for (const campaign of localCampaigns) {
+                  await supabase.from('campaigns').upsert({
+                    id: campaign.id,
+                    user_id: session.user.id,
+                    data: campaign,
+                  });
+                }
+                setCampaigns(localCampaigns);
+                console.log(`Migrated ${localCampaigns.length} campaigns from localStorage to Supabase`);
+              }
+              localStorage.removeItem('nexli-campaigns');
+            }
           }
         }
       } catch (error) {
