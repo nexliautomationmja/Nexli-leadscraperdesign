@@ -4214,11 +4214,17 @@ function CampaignsView({
       };
 
       // Save campaign to Supabase
-      await supabase.from('campaigns').insert({
+      const { error: campaignInsertError } = await supabase.from('campaigns').insert({
         id: campaignId,
         user_id: user.id,
         data: newCampaign,
       });
+
+      if (campaignInsertError) {
+        console.error('Failed to save campaign to Supabase:', campaignInsertError);
+      } else {
+        console.log('Campaign saved to Supabase:', campaignId);
+      }
 
       setCampaigns(prev => [...prev, newCampaign]);
 
@@ -7973,11 +7979,16 @@ export default function App() {
           }
 
           // Load campaigns from Supabase
-          const { data: campaignsData } = await supabase
+          const { data: campaignsData, error: campaignsLoadError } = await supabase
             .from('campaigns')
             .select('*')
             .eq('user_id', session.user.id)
             .order('created_at', { ascending: false });
+
+          if (campaignsLoadError) {
+            console.error('Failed to load campaigns from Supabase:', campaignsLoadError);
+          }
+          console.log('Campaigns loaded from Supabase:', campaignsData?.length || 0, 'campaigns');
 
           if (campaignsData && campaignsData.length > 0) {
             setCampaigns(campaignsData.map((row: any) => row.data as Campaign));

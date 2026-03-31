@@ -80,44 +80,23 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
-          name: string;
-          status: 'draft' | 'active' | 'paused' | 'completed' | 'scheduled';
-          total_leads: number;
-          emails_sent: number;
-          opens: number;
-          replies: number;
-          follow_up_sequence: any | null;
-          ab_test: any | null;
-          scheduled_send: any | null;
+          data: any;
           created_at: string;
+          updated_at: string;
         };
         Insert: {
-          id?: string;
+          id: string;
           user_id: string;
-          name: string;
-          status?: 'draft' | 'active' | 'paused' | 'completed' | 'scheduled';
-          total_leads?: number;
-          emails_sent?: number;
-          opens?: number;
-          replies?: number;
-          follow_up_sequence?: any | null;
-          ab_test?: any | null;
-          scheduled_send?: any | null;
+          data: any;
           created_at?: string;
+          updated_at?: string;
         };
         Update: {
           id?: string;
           user_id?: string;
-          name?: string;
-          status?: 'draft' | 'active' | 'paused' | 'completed' | 'scheduled';
-          total_leads?: number;
-          emails_sent?: number;
-          opens?: number;
-          replies?: number;
-          follow_up_sequence?: any | null;
-          ab_test?: any | null;
-          scheduled_send?: any | null;
+          data?: any;
           created_at?: string;
+          updated_at?: string;
         };
       };
       email_templates: {
