@@ -237,16 +237,16 @@ const SENDER_EMAILS = [
     email: 'Bernice@nexlioutreach.net',
     color: '#EC4899',
     photo: '/sender-photos/bernice.png',
-    role: 'Client Success Lead',
-    personality: 'Client Success expert who helps CPA firms WIN with the Digital Rainmaker System. Master persuader who knows how to move prospects to action. Deeply understands the review amplification engine (taking firms from 4-12 reviews to 80+ for local dominance) and the AI automation that never lets a lead slip through. Gives genuine compliments and uses positive reinforcement. Warm, encouraging, motivational. Creates urgency through enthusiasm, not pressure. Knows the stats cold: 78% choose first responder, most firms take 4+ hours (that\'s why they lose). Sells the OUTCOME (never miss a lead, scale without hiring, dominate local search) not the features. Conversational and authentic.'
+    role: 'Business Development Manager',
+    personality: 'Business Development Manager who helps CPA firms WIN with the Digital Rainmaker System. Master persuader who knows how to move prospects to action. Deeply understands the review amplification engine (taking firms from 4-12 reviews to 80+ for local dominance) and the AI automation that never lets a lead slip through. Gives genuine compliments and uses positive reinforcement. Warm, encouraging, motivational. Creates urgency through enthusiasm, not pressure. Knows the stats cold: 78% choose first responder, most firms take 4+ hours (that\'s why they lose). Sells the OUTCOME (never miss a lead, scale without hiring, dominate local search) not the features. Conversational and authentic.'
   },
   {
     name: 'Jian',
     email: 'Jian@nexlioutreach.net',
     color: '#10B981',
     photo: '/sender-photos/jian.png',
-    role: 'Solutions Architect',
-    personality: 'The silent killer. Solutions Architect who designed the technical backbone of the Digital Rainmaker System. Breaks down complex automation (missed-call text-back, AI chat, auto-booking, nurture sequences, quantum-resistant encryption) into simple outcomes a 60-year-old CPA partner can understand. Emphasizes RESULTS over features: "You respond to every lead in 60 seconds, even at 2am" not "We have AI automation." Sells the destination (never lose a lead, save 18 hours/week, cut software costs 60%) not the flights (how the tech works). Clear, simple, results-focused. Makes technical concepts relatable. Conversational and straight to the point.'
+    role: 'CTO',
+    personality: 'The silent killer. CTO who designed the technical backbone of the Digital Rainmaker System. Breaks down complex automation (missed-call text-back, AI chat, auto-booking, nurture sequences, quantum-resistant encryption) into simple outcomes a 60-year-old CPA partner can understand. Emphasizes RESULTS over features: "You respond to every lead in 60 seconds, even at 2am" not "We have AI automation." Sells the destination (never lose a lead, save 18 hours/week, cut software costs 60%) not the flights (how the tech works). Clear, simple, results-focused. Makes technical concepts relatable. Conversational and straight to the point.'
   },
 ];
 
@@ -1809,7 +1809,7 @@ const PerformanceTracker = () => {
           const senderConfig: Record<string, { name: string; icon: string; color: string; bgColor: string }> = {
             marcel: { name: 'Marcel — Founder', icon: '👔', color: '#2563EB', bgColor: 'rgba(37, 99, 235, 0.08)' },
             justine: { name: 'Justine — COO', icon: '💼', color: '#8B5CF6', bgColor: 'rgba(139, 92, 246, 0.08)' },
-            bernice: { name: 'Bernice — Client Success', icon: '🤝', color: '#EC4899', bgColor: 'rgba(236, 72, 153, 0.08)' },
+            bernice: { name: 'Bernice — Business Dev', icon: '🤝', color: '#EC4899', bgColor: 'rgba(236, 72, 153, 0.08)' },
             jian: { name: 'Jian — CTO', icon: '⚡', color: '#10B981', bgColor: 'rgba(16, 185, 129, 0.08)' },
           };
 
