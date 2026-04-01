@@ -6,6 +6,34 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Paginated fetch to bypass Supabase max-rows limit (default 1000)
+async function fetchAll(table: string, filters: Record<string, string>, orderCol: string) {
+  const PAGE_SIZE = 1000;
+  let allRows: any[] = [];
+  let page = 0;
+
+  while (true) {
+    let query = supabase
+      .from(table)
+      .select('*')
+      .order(orderCol, { ascending: true })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+    for (const [col, val] of Object.entries(filters)) {
+      query = query.eq(col, val);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    allRows = allRows.concat(data || []);
+    if (!data || data.length < PAGE_SIZE) break;
+    page++;
+  }
+
+  return allRows;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -17,31 +45,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Fetch all email_logs for this campaign (override Supabase 1000-row default)
-    const { data: logs, error: logsError } = await supabase
-      .from('email_logs')
-      .select('*')
-      .eq('campaign_id', campaign_id)
-      .eq('user_id', user_id)
-      .order('sent_at', { ascending: true })
-      .range(0, 4999);
+    const filters = { campaign_id, user_id };
 
-    if (logsError) throw logsError;
-
-    // Fetch all scheduled_emails for this campaign (override Supabase 1000-row default)
-    const { data: scheduled, error: schedError } = await supabase
-      .from('scheduled_emails')
-      .select('*')
-      .eq('campaign_id', campaign_id)
-      .eq('user_id', user_id)
-      .order('scheduled_for', { ascending: true })
-      .range(0, 4999);
-
-    if (schedError) throw schedError;
+    const [logs, scheduled] = await Promise.all([
+      fetchAll('email_logs', filters, 'sent_at'),
+      fetchAll('scheduled_emails', filters, 'scheduled_for'),
+    ]);
 
     return res.json({
-      email_logs: logs || [],
-      scheduled_emails: scheduled || [],
+      email_logs: logs,
+      scheduled_emails: scheduled,
     });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
