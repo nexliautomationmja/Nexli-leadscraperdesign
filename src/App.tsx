@@ -4178,17 +4178,23 @@ function CampaignsView({
         }
       }
 
-      // Batch insert in chunks of 100 (keeps payload size manageable with long email bodies)
-      const BATCH_SIZE = 100;
-      for (let i = 0; i < allPayloads.length; i += BATCH_SIZE) {
-        const batch = allPayloads.slice(i, i + BATCH_SIZE);
-        const { error } = await supabase.from('scheduled_emails').insert(batch);
-        if (error) {
-          console.error(`Batch insert error (rows ${i}-${i + batch.length}):`, error.message);
-          failedInserts += batch.length;
-        } else {
-          totalInserted += batch.length;
-        }
+      // Send all payloads to server-side API for reliable bulk insert
+      const bulkResponse = await fetch('/api/bulk-schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: allPayloads, campaign_id: campaignId, user_id: user.id }),
+      });
+
+      if (bulkResponse.ok) {
+        const result = await bulkResponse.json();
+        totalInserted = result.totalInserted;
+        failedInserts = result.failedInserts;
+        console.log(`Bulk schedule: ${totalInserted} inserted, ${failedInserts} failed`);
+        if (result.errors) console.error('Bulk schedule errors:', result.errors);
+      } else {
+        const errText = await bulkResponse.text();
+        console.error('Bulk schedule API error:', errText);
+        throw new Error('Failed to schedule emails');
       }
 
       // Create campaign object
