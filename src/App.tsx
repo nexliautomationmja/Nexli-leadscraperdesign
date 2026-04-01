@@ -4139,50 +4139,27 @@ function CampaignsView({
       let totalInserted = 0;
       let failedInserts = 0;
 
-      // Build all payloads first, then batch insert
-      const allPayloads: any[] = [];
-      for (let step = 0; step < 14; step++) {
-        const dayOffset = SEQ_DAY_OFFSETS[step];
-        const scheduledDate = new Date(startDT);
-        scheduledDate.setDate(scheduledDate.getDate() + dayOffset);
+      // Send minimal data to server — server builds all payloads to avoid payload size limits
+      const leadsForApi = seqSelectedLeads
+        .map(id => allLeads.find(l => l.id === id))
+        .filter(Boolean)
+        .map(l => ({ id: l!.id, name: l!.name, email: l!.email, company: l!.company || '', role: l!.role || '' }));
 
-        const templateSubject = seqSubjects[step] || `Email ${step + 1}`;
-        const templateBody = seqThemes[step] || '';
+      const sendersForApi = SENDER_EMAILS.map(s => ({ name: s.name, email: s.email }));
 
-        for (const sender of SENDER_EMAILS) {
-          const leadIds = seqSenderGroups[sender.email] || [];
-
-          for (const leadId of leadIds) {
-            const lead = allLeads.find(l => l.id === leadId);
-            if (!lead) continue;
-
-            const firstName = lead.name.split(' ')[0] || lead.name;
-            allPayloads.push({
-              id: crypto.randomUUID(),
-              user_id: user.id,
-              lead_id: lead.id,
-              lead_name: lead.name,
-              lead_email: lead.email,
-              lead_company: lead.company || '',
-              lead_role: lead.role || '',
-              subject: templateSubject.replace(/\{firstName\}/g, firstName),
-              body: templateBody.replace(/\{firstName\}/g, firstName),
-              scheduled_for: scheduledDate.toISOString(),
-              sender_name: sender.name,
-              sender_email: sender.email,
-              status: 'pending',
-              sequence_number: step + 1,
-              campaign_id: campaignId,
-            });
-          }
-        }
-      }
-
-      // Send all payloads to server-side API for reliable bulk insert
       const bulkResponse = await fetch('/api/bulk-schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: allPayloads, campaign_id: campaignId, user_id: user.id }),
+        body: JSON.stringify({
+          campaign_id: campaignId,
+          user_id: user.id,
+          start_date: startDT.toISOString(),
+          leads: leadsForApi,
+          sender_groups: seqSenderGroups,
+          subjects: seqSubjects,
+          themes: seqThemes,
+          senders: sendersForApi,
+        }),
       });
 
       if (bulkResponse.ok) {
