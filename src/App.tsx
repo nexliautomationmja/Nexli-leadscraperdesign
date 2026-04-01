@@ -3999,21 +3999,28 @@ function CampaignsView({
 
     try {
       // 1. Cancel all pending scheduled emails for this campaign
-      const { data: cancelled, error: cancelError } = await supabase
-        .from('scheduled_emails')
-        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-        .eq('campaign_id', campaignId)
-        .eq('status', 'pending')
-        .eq('user_id', user.id)
-        .select('id');
+      // Use loop to handle more than 1000 rows (Supabase default limit)
+      let cancelledCount = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data: cancelled, error: cancelError } = await supabase
+          .from('scheduled_emails')
+          .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+          .eq('campaign_id', campaignId)
+          .eq('status', 'pending')
+          .eq('user_id', user.id)
+          .select('id')
+          .limit(1000);
 
-      if (cancelError) {
-        console.error('Failed to cancel scheduled emails:', cancelError);
-        addNotification('error', 'Delete Failed', 'Could not cancel pending emails');
-        return;
+        if (cancelError) {
+          console.error('Failed to cancel scheduled emails:', cancelError);
+          addNotification('error', 'Delete Failed', 'Could not cancel pending emails');
+          return;
+        }
+
+        cancelledCount += cancelled?.length || 0;
+        hasMore = (cancelled?.length || 0) === 1000;
       }
-
-      const cancelledCount = cancelled?.length || 0;
 
       // 2. Release leads from campaign (by active_campaign_id in DB, not local state)
       await supabase

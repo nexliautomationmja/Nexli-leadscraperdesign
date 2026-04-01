@@ -17,23 +17,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Fetch all email_logs for this campaign
+    // Fetch all email_logs for this campaign (override Supabase 1000-row default)
     const { data: logs, error: logsError } = await supabase
       .from('email_logs')
       .select('*')
       .eq('campaign_id', campaign_id)
       .eq('user_id', user_id)
-      .order('sent_at', { ascending: true });
+      .order('sent_at', { ascending: true })
+      .range(0, 4999);
 
     if (logsError) throw logsError;
 
-    // Fetch all scheduled_emails for this campaign (including pending future ones)
+    // Fetch all scheduled_emails for this campaign (override Supabase 1000-row default)
     const { data: scheduled, error: schedError } = await supabase
       .from('scheduled_emails')
       .select('*')
       .eq('campaign_id', campaign_id)
       .eq('user_id', user_id)
-      .order('scheduled_for', { ascending: true });
+      .order('scheduled_for', { ascending: true })
+      .range(0, 4999);
 
     if (schedError) throw schedError;
 
