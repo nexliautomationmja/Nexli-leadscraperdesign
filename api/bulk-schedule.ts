@@ -14,16 +14,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { campaign_id, user_id, start_date, leads, sender_groups, subjects, themes, senders } = req.body;
+  const { campaign_id, user_id, start_date, leads, sender_groups, subjects, themes, senders, step_start, step_end } = req.body;
 
   if (!campaign_id || !user_id || !start_date || !leads || !sender_groups || !subjects || !themes || !senders) {
     return res.status(400).json({
-      error: 'campaign_id, user_id, start_date, leads, sender_groups, subjects, themes, and senders required',
+      error: 'Missing required fields',
     });
   }
 
+  const fromStep = typeof step_start === 'number' ? step_start : 0;
+  const toStep = typeof step_end === 'number' ? step_end : 13;
+
   try {
-    // Build lookup maps
     const leadMap = new Map<string, { id: string; name: string; email: string; company: string; role: string }>();
     for (const lead of leads) {
       leadMap.set(lead.id, lead);
@@ -34,11 +36,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const startDT = new Date(start_date);
-
-    // Build all email payloads server-side
     const allPayloads: any[] = [];
 
-    for (let step = 0; step < 14; step++) {
+    for (let step = fromStep; step <= toStep; step++) {
       const dayOffset = SEQ_DAY_OFFSETS[step];
       const scheduledDate = new Date(startDT);
       scheduledDate.setDate(scheduledDate.getDate() + dayOffset);
@@ -76,34 +76,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // PARALLEL batch insert — fire all batches at once to beat 10s Vercel timeout
-    // 500 rows per batch × ~800 bytes each = ~400KB per batch (safe for Supabase)
-    const BATCH_SIZE = 500;
-    const batches: any[][] = [];
-    for (let i = 0; i < allPayloads.length; i += BATCH_SIZE) {
-      batches.push(allPayloads.slice(i, i + BATCH_SIZE));
-    }
-
-    // Fire ALL batches simultaneously
-    const results = await Promise.all(
-      batches.map((batch, idx) =>
-        supabase.from('scheduled_emails').insert(batch).then(
-          ({ error }) => ({ idx, count: batch.length, error }),
-          (err: any) => ({ idx, count: batch.length, error: { message: err.message } })
-        )
-      )
-    );
-
+    // Insert in 2 sequential batches max (~460 rows each for 5 steps × 184 leads)
     let totalInserted = 0;
     let failedInserts = 0;
     const errors: string[] = [];
+    const BATCH_SIZE = 500;
 
-    for (const r of results) {
-      if (r.error) {
-        errors.push(`Batch ${r.idx + 1}: ${r.error.message}`);
-        failedInserts += r.count;
+    for (let i = 0; i < allPayloads.length; i += BATCH_SIZE) {
+      const batch = allPayloads.slice(i, i + BATCH_SIZE);
+      const { error } = await supabase.from('scheduled_emails').insert(batch);
+      if (error) {
+        errors.push(`Batch ${Math.floor(i / BATCH_SIZE) + 1} (steps ${fromStep + 1}-${toStep + 1}): ${error.message}`);
+        failedInserts += batch.length;
       } else {
-        totalInserted += r.count;
+        totalInserted += batch.length;
       }
     }
 
@@ -111,8 +97,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       success: true,
       totalInserted,
       failedInserts,
-      totalRequested: allPayloads.length,
-      batchCount: batches.length,
+      stepsProcessed: `${fromStep + 1}-${toStep + 1}`,
+      totalBuilt: allPayloads.length,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error: any) {

@@ -4139,7 +4139,7 @@ function CampaignsView({
       let totalInserted = 0;
       let failedInserts = 0;
 
-      // Send minimal data to server — server builds all payloads to avoid payload size limits
+      // Send minimal data to server in 3 smaller calls to avoid timeouts
       const leadsForApi = seqSelectedLeads
         .map(id => allLeads.find(l => l.id === id))
         .filter(Boolean)
@@ -4147,31 +4147,42 @@ function CampaignsView({
 
       const sendersForApi = SENDER_EMAILS.map(s => ({ name: s.name, email: s.email }));
 
-      const bulkResponse = await fetch('/api/bulk-schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          campaign_id: campaignId,
-          user_id: user.id,
-          start_date: startDT.toISOString(),
-          leads: leadsForApi,
-          sender_groups: seqSenderGroups,
-          subjects: seqSubjects,
-          themes: seqThemes,
-          senders: sendersForApi,
-        }),
-      });
+      const basePayload = {
+        campaign_id: campaignId,
+        user_id: user.id,
+        start_date: startDT.toISOString(),
+        leads: leadsForApi,
+        sender_groups: seqSenderGroups,
+        subjects: seqSubjects,
+        themes: seqThemes,
+        senders: sendersForApi,
+      };
 
-      if (bulkResponse.ok) {
-        const result = await bulkResponse.json();
-        totalInserted = result.totalInserted;
-        failedInserts = result.failedInserts;
-        console.log(`Bulk schedule: ${totalInserted} inserted, ${failedInserts} failed`);
-        if (result.errors) console.error('Bulk schedule errors:', result.errors);
-      } else {
-        const errText = await bulkResponse.text();
-        console.error('Bulk schedule API error:', errText);
-        throw new Error('Failed to schedule emails');
+      // Split 14 steps into 3 calls: steps 0-4, 5-9, 10-13
+      const stepChunks = [
+        { step_start: 0, step_end: 4 },
+        { step_start: 5, step_end: 9 },
+        { step_start: 10, step_end: 13 },
+      ];
+
+      for (const chunk of stepChunks) {
+        const resp = await fetch('/api/bulk-schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...basePayload, ...chunk }),
+        });
+
+        if (resp.ok) {
+          const result = await resp.json();
+          totalInserted += result.totalInserted;
+          failedInserts += result.failedInserts || 0;
+          console.log(`Chunk steps ${chunk.step_start + 1}-${chunk.step_end + 1}: ${result.totalInserted} inserted`);
+          if (result.errors) console.error('Chunk errors:', result.errors);
+        } else {
+          const errText = await resp.text();
+          console.error(`Chunk steps ${chunk.step_start + 1}-${chunk.step_end + 1} failed:`, errText);
+          throw new Error(`Failed to schedule steps ${chunk.step_start + 1}-${chunk.step_end + 1}`);
+        }
       }
 
       // Create campaign object
