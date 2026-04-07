@@ -1456,6 +1456,146 @@ const Navbar = ({
 };
 
 // ================================================================
+// LinkedIn search templates — preset (query + titles) combos that
+// each map to a different cursor key, so clicking one always pulls
+// a fresh ~1k-profile slice of the CPA market.
+// ================================================================
+const LINKEDIN_TEMPLATES: Array<{
+  emoji: string;
+  name: string;
+  description: string;
+  searchQuery: string;
+  titleKeywords: string[];
+}> = [
+  {
+    emoji: '🏢',
+    name: 'General CPA Owners',
+    description: 'Default broad CPA firm owner search',
+    searchQuery: 'CPA firm owner founder partner accounting tax practice',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Managing Partner', 'President', 'CEO', 'Principal'],
+  },
+  {
+    emoji: '👤',
+    name: 'Solo Practitioners',
+    description: 'Single-CPA practices and sole proprietors',
+    searchQuery: 'solo CPA sole practitioner independent accountant',
+    titleKeywords: ['Owner', 'Sole Practitioner', 'Founder', 'Principal', 'Self-Employed'],
+  },
+  {
+    emoji: '📋',
+    name: 'Tax Prep Firms',
+    description: 'Tax-focused firms and enrolled agents',
+    searchQuery: 'tax preparation firm enrolled agent EA tax preparer',
+    titleKeywords: ['Owner', 'Founder', 'President', 'Managing Partner', 'Principal'],
+  },
+  {
+    emoji: '📚',
+    name: 'Bookkeeping Services',
+    description: 'Bookkeeping-first firms, QuickBooks ProAdvisors',
+    searchQuery: 'bookkeeping services QuickBooks ProAdvisor outsourced bookkeeper',
+    titleKeywords: ['Owner', 'Founder', 'CEO', 'Principal', 'Managing Partner'],
+  },
+  {
+    emoji: '💼',
+    name: 'Fractional CFO',
+    description: 'Outsourced/fractional CFOs and advisory CPAs',
+    searchQuery: 'fractional CFO outsourced CFO advisory accounting consulting',
+    titleKeywords: ['Founder', 'Managing Partner', 'Principal', 'CEO', 'Owner'],
+  },
+  {
+    emoji: '🏥',
+    name: 'Medical/Dental CPA',
+    description: 'CPAs serving healthcare practices',
+    searchQuery: 'medical dental practice CPA accountant healthcare physician',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '🏠',
+    name: 'Real Estate CPA',
+    description: 'Real estate accounting specialists',
+    searchQuery: 'real estate accountant CPA property tax investor landlord',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '🍽️',
+    name: 'Restaurant CPA',
+    description: 'Hospitality and restaurant accounting',
+    searchQuery: 'restaurant accounting CPA hospitality food service',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '🛒',
+    name: 'eCommerce CPA',
+    description: 'Amazon, Shopify, and DTC accountants',
+    searchQuery: 'ecommerce accountant Amazon Shopify CPA online seller',
+    titleKeywords: ['Owner', 'Founder', 'CEO', 'Principal'],
+  },
+  {
+    emoji: '⚖️',
+    name: 'Tax Resolution',
+    description: 'IRS representation and tax resolution',
+    searchQuery: 'enrolled agent tax resolution IRS representation back taxes',
+    titleKeywords: ['Owner', 'Founder', 'Principal', 'Managing Partner'],
+  },
+  {
+    emoji: '💰',
+    name: 'Wealth/Estate CPA',
+    description: 'Estate planning and wealth management CPAs',
+    searchQuery: 'estate planning CPA trust accountant wealth management',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '🔍',
+    name: 'Forensic Accountant',
+    description: 'Litigation support, fraud examiners',
+    searchQuery: 'forensic accountant litigation support fraud examiner CFE',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '🌿',
+    name: 'Cannabis CPA',
+    description: '280E and cannabis industry specialists',
+    searchQuery: 'cannabis accountant CPA marijuana 280E hemp dispensary',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '₿',
+    name: 'Crypto CPA',
+    description: 'Cryptocurrency and digital asset accounting',
+    searchQuery: 'cryptocurrency CPA bitcoin tax digital asset blockchain',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '🌎',
+    name: 'Bilingual CPA',
+    description: 'Spanish-speaking / Hispanic market CPAs',
+    searchQuery: 'contador CPA Hispanic Latino bilingual Spanish accounting',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '🌐',
+    name: 'International Tax',
+    description: 'Cross-border, expat, and FBAR specialists',
+    searchQuery: 'international tax CPA expat FBAR foreign cross-border',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '🏗️',
+    name: 'Construction CPA',
+    description: 'Construction and contractor accounting',
+    searchQuery: 'construction accounting CPA contractor builder job costing',
+    titleKeywords: ['Owner', 'Founder', 'Partner', 'Principal'],
+  },
+  {
+    emoji: '🚀',
+    name: 'Startup CPA',
+    description: 'Tech startup and venture-backed CPAs',
+    searchQuery: 'startup CPA venture backed SaaS technology accounting',
+    titleKeywords: ['Founder', 'Owner', 'CEO', 'Managing Partner', 'Principal'],
+  },
+];
+
+// ================================================================
 // LinkedInView — dedicated LinkedIn-only scraping & outreach tab
 // ================================================================
 const LinkedInView = ({
@@ -1802,12 +1942,57 @@ const LinkedInView = ({
           </div>
         </div>
 
-        {/* Search keywords (freeform) */}
+        {/* Search templates — preset (query + titles) combos */}
+        <div>
+          <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
+            Search template
+            <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+              (each template targets a different CPA niche — click for a fresh page-1 cursor)
+            </span>
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {LINKEDIN_TEMPLATES.map(tpl => {
+              const isActive =
+                linkedinSearchQuery === tpl.searchQuery &&
+                linkedinTitleKeywords.length === tpl.titleKeywords.length &&
+                linkedinTitleKeywords.every((k, i) => k === tpl.titleKeywords[i]);
+              return (
+                <button
+                  key={tpl.name}
+                  onClick={() => {
+                    setLinkedinSearchQuery(tpl.searchQuery);
+                    setLinkedinTitleKeywords(() => [...tpl.titleKeywords]);
+                  }}
+                  title={tpl.description}
+                  className="text-left px-3 py-2 rounded-lg text-xs transition-all"
+                  style={{
+                    background: isActive ? 'rgba(10, 102, 194, 0.12)' : 'var(--bg-elevated)',
+                    color: isActive ? '#0A66C2' : 'var(--text-primary)',
+                    border: `1px solid ${isActive ? 'rgba(10, 102, 194, 0.45)' : 'var(--border-color)'}`,
+                  }}
+                >
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    <span>{tpl.emoji}</span>
+                    <span className="truncate">{tpl.name}</span>
+                  </div>
+                  <div
+                    className="text-[10px] mt-0.5 truncate"
+                    style={{ color: isActive ? 'rgba(10, 102, 194, 0.8)' : 'var(--text-muted)' }}
+                  >
+                    {tpl.description}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Search keywords (freeform — overrides template) */}
         <div>
           <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
             Search query
             <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
-              (edit to diversify results)
+              (edit any template — each unique query gets its own cursor)
             </span>
           </label>
           <input
