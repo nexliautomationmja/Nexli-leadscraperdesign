@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search,
   Users,
@@ -1625,12 +1625,30 @@ const LinkedInView = ({
 
       {/* Scraper Form */}
       <div className="glass-card p-6 space-y-5">
-        <div className="flex items-center gap-2 mb-2">
-          <Search className="w-5 h-5" style={{ color: '#0A66C2' }} />
-          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-            Find Active CPA Owners
-          </h3>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <Search className="w-5 h-5" style={{ color: '#0A66C2' }} />
+            <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+              Find Active CPA Owners
+            </h3>
+          </div>
+          <div
+            className="px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2"
+            style={{
+              background: 'rgba(10, 102, 194, 0.12)',
+              color: '#0A66C2',
+              border: '1px solid rgba(10, 102, 194, 0.3)',
+            }}
+            title="LinkedIn returns 25 profiles per page. Cursor auto-advances after each scrape."
+          >
+            <span>📄 Page {linkedinStartPage}/100</span>
+            <span style={{ color: 'var(--text-muted)' }}>·</span>
+            <span>~{(linkedinStartPage - 1) * 25 + 1}–{Math.min(2500, linkedinStartPage * 25 + linkedinScrapeCount)}</span>
+          </div>
         </div>
+        <p className="text-xs -mt-1" style={{ color: 'var(--text-muted)' }}>
+          To get more leads after exhausting a query: change the <strong>Location</strong> (e.g. California, Texas) or edit the <strong>Search query</strong>. Each unique combo gets its own page cursor.
+        </p>
 
         {/* Number to scrape + Start page */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -8384,19 +8402,38 @@ export default function App() {
   const [linkedinSearchQuery, setLinkedinSearchQuery] = useState(
     'CPA firm owner founder partner accounting tax practice'
   );
-  // Page cursor for harvestapi pagination — auto-advances after each scrape so
-  // consecutive runs grab fresh profiles. Persisted to localStorage so progress
-  // survives page reloads. Each page = 25 profiles.
-  const [linkedinStartPage, setLinkedinStartPage] = useState<number>(() => {
-    if (typeof window === 'undefined') return 1;
-    const v = parseInt(localStorage.getItem('linkedinStartPage') || '1');
-    return isNaN(v) || v < 1 ? 1 : Math.min(v, 100);
+  // Page cursor MAP for harvestapi pagination — keyed by search params combo
+  // (location + searchQuery + titleKeywords). When the user changes any of
+  // those, the cursor for the NEW combo starts at 1, not where the last one
+  // left off — LinkedIn pagination is per-query so this is correct behavior.
+  // Persisted to localStorage so progress survives page reloads.
+  const [linkedinPageCursors, setLinkedinPageCursors] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      return JSON.parse(localStorage.getItem('linkedinPageCursors') || '{}');
+    } catch {
+      return {};
+    }
   });
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('linkedinStartPage', String(linkedinStartPage));
+      localStorage.setItem('linkedinPageCursors', JSON.stringify(linkedinPageCursors));
     }
-  }, [linkedinStartPage]);
+  }, [linkedinPageCursors]);
+
+  // Build the cursor key from current search params
+  const linkedinCursorKey = useMemo(
+    () =>
+      `${linkedinLocation.trim().toLowerCase()}|${linkedinSearchQuery.trim().toLowerCase()}|${[...linkedinTitleKeywords].sort().join(',').toLowerCase()}`,
+    [linkedinLocation, linkedinSearchQuery, linkedinTitleKeywords]
+  );
+  const linkedinStartPage = linkedinPageCursors[linkedinCursorKey] || 1;
+  const setLinkedinStartPage = (n: number) => {
+    setLinkedinPageCursors(prev => ({
+      ...prev,
+      [linkedinCursorKey]: Math.max(1, Math.min(100, n)),
+    }));
+  };
   const [linkedinFilter, setLinkedinFilter] = useState<'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed'>('all');
   const [linkedinSearch, setLinkedinSearch] = useState('');
   const [linkedinSort, setLinkedinSort] = useState<'newest' | 'followers' | 'name'>('newest');
@@ -9224,29 +9261,23 @@ export default function App() {
       //   2. Big-4 client-side filter for exclusion
       //   3. User can layer extra filters via toggles below
       const trimmedLocation = linkedinLocation.trim() || 'United States';
-      const isBroadUS = /^united states$/i.test(trimmedLocation);
 
+      // NOTE: We intentionally do NOT use `autoQuerySegmentation`. It returns
+      // a deterministic union of segment "top" results — meaning consecutive
+      // runs return the SAME profiles regardless of `startPage`. To get truly
+      // unique profiles across runs we use straight pagination (`startPage`)
+      // and let the user vary the location/query manually for fresh batches.
       const actorInput: Record<string, any> = {
         profileScraperMode: 'Full',
-        searchQuery: linkedinSearchQuery.trim() || 'CPA firm owner founder partner accounting tax practice',
+        searchQuery:
+          linkedinSearchQuery.trim() || 'CPA firm owner founder partner accounting tax practice',
         currentJobTitles: linkedinTitleKeywords,
         locations: [trimmedLocation],
         maxItems: linkedinScrapeCount,
-        // Pagination — page cursor advances after each successful scrape so we
-        // grab fresh profiles every run instead of the same top results.
-        // Each page = 25 profiles.
+        // Pagination — auto-advances after each successful scrape per
+        // (location + query + titles) combo. Each page = 25 profiles.
         startPage: linkedinStartPage,
       };
-
-      // Auto query segmentation — harvestapi's killer feature for bypassing
-      // LinkedIn's ~1000-result search cap. Splits the query into sub-queries
-      // (state, seniority, industry) and scrapes each separately so we can
-      // pull thousands of unique profiles. Only enabled for the broad US
-      // search; if the user narrows to a state, segmentation is unnecessary.
-      if (isBroadUS) {
-        actorInput.autoQuerySegmentation = true;
-        actorInput.autoQuerySegmentationTargetCountries = ['US'];
-      }
 
       // "Active" filter — harvestapi exposes `recentlyChangedJobs` as the only
       // server-side activity signal (recent profile update = engaged user).
@@ -9255,7 +9286,9 @@ export default function App() {
         actorInput.recentlyChangedJobs = true;
       }
 
-      console.log(`[LinkedIn Scrape] Starting at page ${linkedinStartPage} (auto-segmentation: ${isBroadUS ? 'on' : 'off'})`);
+      console.log(
+        `[LinkedIn Scrape] Cursor key: "${linkedinCursorKey}" — starting at page ${linkedinStartPage}`
+      );
       console.log('[LinkedIn Scrape] Sending actor input:', actorInput);
 
       // 1. Trigger Apify run
@@ -9283,6 +9316,16 @@ export default function App() {
       console.log(`[LinkedIn Scrape] Raw items from Apify: ${items.length}`);
       if (items.length > 0) {
         console.log('[LinkedIn Scrape] Sample item shape:', items[0]);
+        // Log first/last URLs so we can verify across runs that pagination is
+        // actually returning different profiles. If these match between runs,
+        // the actor is ignoring our `startPage`.
+        const firstUrl = items[0]?.linkedinUrl || items[0]?.profileUrl || items[0]?.url;
+        const lastUrl =
+          items[items.length - 1]?.linkedinUrl ||
+          items[items.length - 1]?.profileUrl ||
+          items[items.length - 1]?.url;
+        console.log(`[LinkedIn Scrape] First profile: ${firstUrl}`);
+        console.log(`[LinkedIn Scrape] Last  profile: ${lastUrl}`);
       }
       const rawCount = items.length;
 
