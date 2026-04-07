@@ -1474,6 +1474,8 @@ const LinkedInView = ({
   setLinkedinLocation,
   linkedinSearchQuery,
   setLinkedinSearchQuery,
+  linkedinStartPage,
+  setLinkedinStartPage,
   linkedinFilter,
   setLinkedinFilter,
   linkedinSearch,
@@ -1505,6 +1507,8 @@ const LinkedInView = ({
   setLinkedinLocation: (s: string) => void;
   linkedinSearchQuery: string;
   setLinkedinSearchQuery: (s: string) => void;
+  linkedinStartPage: number;
+  setLinkedinStartPage: (n: number) => void;
   linkedinFilter: 'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed';
   setLinkedinFilter: (f: 'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed') => void;
   linkedinSearch: string;
@@ -1628,25 +1632,67 @@ const LinkedInView = ({
           </h3>
         </div>
 
-        {/* Number to scrape */}
-        <div>
-          <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
-            Number of profiles to scrape
-          </label>
-          <input
-            type="number"
-            min={1}
-            max={200}
-            value={linkedinScrapeCount}
-            onChange={e => setLinkedinScrapeCount(Math.max(1, Math.min(200, parseInt(e.target.value) || 50)))}
-            className="w-32 px-4 py-2 rounded-lg text-sm font-medium"
-            style={{
-              background: 'var(--bg-elevated)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-            }}
-          />
-          <span className="ml-3 text-xs" style={{ color: 'var(--text-muted)' }}>(max 200 per run)</span>
+        {/* Number to scrape + Start page */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
+              Number of profiles to scrape
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={linkedinScrapeCount}
+              onChange={e => setLinkedinScrapeCount(Math.max(1, Math.min(200, parseInt(e.target.value) || 50)))}
+              className="w-full px-4 py-2 rounded-lg text-sm font-medium"
+              style={{
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+              }}
+            />
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>max 200 per run</span>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
+              Start page
+              <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+                (auto-advances after each scrape)
+              </span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={linkedinStartPage}
+                onChange={e => setLinkedinStartPage(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                }}
+              />
+              <button
+                onClick={() => setLinkedinStartPage(1)}
+                disabled={linkedinStartPage === 1}
+                className="px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-40"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                }}
+                title="Reset to page 1"
+              >
+                Reset
+              </button>
+            </div>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              25 profiles per page · max page 100
+            </span>
+          </div>
         </div>
 
         {/* Title keywords */}
@@ -8331,11 +8377,26 @@ export default function App() {
     'Owner', 'Founder', 'Partner', 'Managing Partner', 'President', 'CEO', 'Principal',
   ]);
   // LinkedIn search is deterministic — same query returns same profiles. To find
-  // NEW profiles on repeat scrapes, the user must vary the location or keywords.
+  // NEW profiles on repeat scrapes, we use harvestapi's pagination (`startPage`)
+  // and `autoQuerySegmentation` (which internally splits the query by US state +
+  // seniority + industry to bypass LinkedIn's ~1000-result cap).
   const [linkedinLocation, setLinkedinLocation] = useState('United States');
   const [linkedinSearchQuery, setLinkedinSearchQuery] = useState(
     'CPA firm owner founder partner accounting tax practice'
   );
+  // Page cursor for harvestapi pagination — auto-advances after each scrape so
+  // consecutive runs grab fresh profiles. Persisted to localStorage so progress
+  // survives page reloads. Each page = 25 profiles.
+  const [linkedinStartPage, setLinkedinStartPage] = useState<number>(() => {
+    if (typeof window === 'undefined') return 1;
+    const v = parseInt(localStorage.getItem('linkedinStartPage') || '1');
+    return isNaN(v) || v < 1 ? 1 : Math.min(v, 100);
+  });
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('linkedinStartPage', String(linkedinStartPage));
+    }
+  }, [linkedinStartPage]);
   const [linkedinFilter, setLinkedinFilter] = useState<'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed'>('all');
   const [linkedinSearch, setLinkedinSearch] = useState('');
   const [linkedinSort, setLinkedinSort] = useState<'newest' | 'followers' | 'name'>('newest');
@@ -9162,13 +9223,30 @@ export default function App() {
       //   1. `searchQuery` + `currentJobTitles` for relevance
       //   2. Big-4 client-side filter for exclusion
       //   3. User can layer extra filters via toggles below
+      const trimmedLocation = linkedinLocation.trim() || 'United States';
+      const isBroadUS = /^united states$/i.test(trimmedLocation);
+
       const actorInput: Record<string, any> = {
         profileScraperMode: 'Full',
         searchQuery: linkedinSearchQuery.trim() || 'CPA firm owner founder partner accounting tax practice',
         currentJobTitles: linkedinTitleKeywords,
-        locations: [linkedinLocation.trim() || 'United States'],
+        locations: [trimmedLocation],
         maxItems: linkedinScrapeCount,
+        // Pagination — page cursor advances after each successful scrape so we
+        // grab fresh profiles every run instead of the same top results.
+        // Each page = 25 profiles.
+        startPage: linkedinStartPage,
       };
+
+      // Auto query segmentation — harvestapi's killer feature for bypassing
+      // LinkedIn's ~1000-result search cap. Splits the query into sub-queries
+      // (state, seniority, industry) and scrapes each separately so we can
+      // pull thousands of unique profiles. Only enabled for the broad US
+      // search; if the user narrows to a state, segmentation is unnecessary.
+      if (isBroadUS) {
+        actorInput.autoQuerySegmentation = true;
+        actorInput.autoQuerySegmentationTargetCountries = ['US'];
+      }
 
       // "Active" filter — harvestapi exposes `recentlyChangedJobs` as the only
       // server-side activity signal (recent profile update = engaged user).
@@ -9177,6 +9255,7 @@ export default function App() {
         actorInput.recentlyChangedJobs = true;
       }
 
+      console.log(`[LinkedIn Scrape] Starting at page ${linkedinStartPage} (auto-segmentation: ${isBroadUS ? 'on' : 'off'})`);
       console.log('[LinkedIn Scrape] Sending actor input:', actorInput);
 
       // 1. Trigger Apify run
@@ -9344,11 +9423,17 @@ export default function App() {
           );
         });
 
+        // Advance the page cursor by however many search pages we just consumed
+        // (each page = 25 profiles). Cap at the actor's max page (100).
+        const pagesConsumed = Math.max(1, Math.ceil(insertRows.length / 25));
+        const nextPage = Math.min(100, linkedinStartPage + pagesConsumed);
+        setLinkedinStartPage(nextPage);
+
         if (newCount === 0) {
           addNotification(
             'warning',
             'No New Profiles Found',
-            `All ${dupeCount} profiles returned are already in your list. Change the "Location" (try a state like "California") or edit the search keywords to find different profiles.`
+            `All ${dupeCount} profiles returned are already in your list. Try changing the location (e.g. "California") or edit the search keywords. Cursor advanced to page ${nextPage}.`
           );
         } else {
           const dupeNote = dupeCount > 0 ? ` (${dupeCount} were already in your list)` : '';
@@ -9356,7 +9441,7 @@ export default function App() {
           addNotification(
             'success',
             'LinkedIn Scrape Complete',
-            `Added ${newCount} new profiles${dupeNote}${big4Note}.`
+            `Added ${newCount} new profiles${dupeNote}${big4Note}. Next scrape starts at page ${nextPage}.`
           );
         }
       }
@@ -11293,6 +11378,8 @@ export default function App() {
                   setLinkedinLocation={setLinkedinLocation}
                   linkedinSearchQuery={linkedinSearchQuery}
                   setLinkedinSearchQuery={setLinkedinSearchQuery}
+                  linkedinStartPage={linkedinStartPage}
+                  setLinkedinStartPage={setLinkedinStartPage}
                   linkedinFilter={linkedinFilter}
                   setLinkedinFilter={setLinkedinFilter}
                   linkedinSearch={linkedinSearch}
