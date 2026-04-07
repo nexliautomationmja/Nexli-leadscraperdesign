@@ -1470,6 +1470,10 @@ const LinkedInView = ({
   setLinkedinActiveOnly,
   linkedinTitleKeywords,
   setLinkedinTitleKeywords,
+  linkedinLocation,
+  setLinkedinLocation,
+  linkedinSearchQuery,
+  setLinkedinSearchQuery,
   linkedinFilter,
   setLinkedinFilter,
   linkedinSearch,
@@ -1497,6 +1501,10 @@ const LinkedInView = ({
   setLinkedinActiveOnly: (v: boolean) => void;
   linkedinTitleKeywords: string[];
   setLinkedinTitleKeywords: React.Dispatch<React.SetStateAction<string[]>>;
+  linkedinLocation: string;
+  setLinkedinLocation: (s: string) => void;
+  linkedinSearchQuery: string;
+  setLinkedinSearchQuery: (s: string) => void;
   linkedinFilter: 'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed';
   setLinkedinFilter: (f: 'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed') => void;
   linkedinSearch: string;
@@ -1690,6 +1698,66 @@ const LinkedInView = ({
               <Plus className="w-4 h-4" />
             </button>
           </div>
+        </div>
+
+        {/* Location */}
+        <div>
+          <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
+            Location
+            <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+              (change this to find different profiles on repeat scrapes)
+            </span>
+          </label>
+          <input
+            type="text"
+            value={linkedinLocation}
+            onChange={e => setLinkedinLocation(e.target.value)}
+            placeholder="e.g. United States, California, Texas, New York..."
+            className="w-full px-3 py-2 rounded-lg text-sm mb-2"
+            style={{
+              background: 'var(--bg-elevated)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+            }}
+          />
+          <div className="flex flex-wrap gap-1.5">
+            {['United States', 'California', 'Texas', 'New York', 'Florida', 'Illinois', 'Pennsylvania', 'Ohio', 'Georgia', 'North Carolina'].map(loc => (
+              <button
+                key={loc}
+                onClick={() => setLinkedinLocation(loc)}
+                className="px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                style={{
+                  background: linkedinLocation === loc ? 'rgba(10, 102, 194, 0.15)' : 'var(--bg-elevated)',
+                  color: linkedinLocation === loc ? '#0A66C2' : 'var(--text-secondary)',
+                  border: `1px solid ${linkedinLocation === loc ? 'rgba(10, 102, 194, 0.4)' : 'var(--border-color)'}`,
+                }}
+              >
+                {loc}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Search keywords (freeform) */}
+        <div>
+          <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
+            Search query
+            <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+              (edit to diversify results)
+            </span>
+          </label>
+          <input
+            type="text"
+            value={linkedinSearchQuery}
+            onChange={e => setLinkedinSearchQuery(e.target.value)}
+            placeholder="CPA firm owner founder partner accounting tax practice"
+            className="w-full px-3 py-2 rounded-lg text-sm"
+            style={{
+              background: 'var(--bg-elevated)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+            }}
+          />
         </div>
 
         {/* Toggles */}
@@ -8262,6 +8330,12 @@ export default function App() {
   const [linkedinTitleKeywords, setLinkedinTitleKeywords] = useState<string[]>([
     'Owner', 'Founder', 'Partner', 'Managing Partner', 'President', 'CEO', 'Principal',
   ]);
+  // LinkedIn search is deterministic — same query returns same profiles. To find
+  // NEW profiles on repeat scrapes, the user must vary the location or keywords.
+  const [linkedinLocation, setLinkedinLocation] = useState('United States');
+  const [linkedinSearchQuery, setLinkedinSearchQuery] = useState(
+    'CPA firm owner founder partner accounting tax practice'
+  );
   const [linkedinFilter, setLinkedinFilter] = useState<'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed'>('all');
   const [linkedinSearch, setLinkedinSearch] = useState('');
   const [linkedinSort, setLinkedinSort] = useState<'newest' | 'followers' | 'name'>('newest');
@@ -9090,9 +9164,9 @@ export default function App() {
       //   3. User can layer extra filters via toggles below
       const actorInput: Record<string, any> = {
         profileScraperMode: 'Full',
-        searchQuery: 'CPA firm owner founder partner accounting tax practice',
+        searchQuery: linkedinSearchQuery.trim() || 'CPA firm owner founder partner accounting tax practice',
         currentJobTitles: linkedinTitleKeywords,
-        locations: ['United States'],
+        locations: [linkedinLocation.trim() || 'United States'],
         maxItems: linkedinScrapeCount,
       };
 
@@ -9220,6 +9294,20 @@ export default function App() {
         raw_data: p.rawData,
       }));
 
+      // Figure out which profiles are NEW vs already in the user's list so we can
+      // report accurate counts. LinkedIn search is deterministic, so repeat runs
+      // with the same params return the same profiles.
+      const scrapedUrls = insertRows.map(r => r.profile_url);
+      const { data: existingRows } = await supabase
+        .from('linkedin_leads')
+        .select('profile_url')
+        .eq('user_id', user.id)
+        .in('profile_url', scrapedUrls);
+      const existingUrls = new Set((existingRows || []).map(r => r.profile_url));
+      const newCount = insertRows.filter(r => !existingUrls.has(r.profile_url)).length;
+      const dupeCount = insertRows.length - newCount;
+      console.log(`[LinkedIn Scrape] New: ${newCount}, Already in list: ${dupeCount}`);
+
       const { data: inserted, error: insertError } = await supabase
         .from('linkedin_leads')
         .upsert(insertRows, { onConflict: 'user_id,profile_url', ignoreDuplicates: false })
@@ -9256,12 +9344,21 @@ export default function App() {
           );
         });
 
-        const big4Note = big4Removed > 0 ? ` (${big4Removed} Big-4 excluded)` : '';
-        addNotification(
-          'success',
-          'LinkedIn Scrape Complete',
-          `Added ${newLeads.length} of ${rawCount} profiles returned by LinkedIn${big4Note}.`
-        );
+        if (newCount === 0) {
+          addNotification(
+            'warning',
+            'No New Profiles Found',
+            `All ${dupeCount} profiles returned are already in your list. Change the "Location" (try a state like "California") or edit the search keywords to find different profiles.`
+          );
+        } else {
+          const dupeNote = dupeCount > 0 ? ` (${dupeCount} were already in your list)` : '';
+          const big4Note = big4Removed > 0 ? ` — ${big4Removed} Big-4 excluded` : '';
+          addNotification(
+            'success',
+            'LinkedIn Scrape Complete',
+            `Added ${newCount} new profiles${dupeNote}${big4Note}.`
+          );
+        }
       }
     } catch (error: any) {
       console.error('LinkedIn scrape failed:', error);
@@ -11192,6 +11289,10 @@ export default function App() {
                   setLinkedinActiveOnly={setLinkedinActiveOnly}
                   linkedinTitleKeywords={linkedinTitleKeywords}
                   setLinkedinTitleKeywords={setLinkedinTitleKeywords}
+                  linkedinLocation={linkedinLocation}
+                  setLinkedinLocation={setLinkedinLocation}
+                  linkedinSearchQuery={linkedinSearchQuery}
+                  setLinkedinSearchQuery={setLinkedinSearchQuery}
                   linkedinFilter={linkedinFilter}
                   setLinkedinFilter={setLinkedinFilter}
                   linkedinSearch={linkedinSearch}
