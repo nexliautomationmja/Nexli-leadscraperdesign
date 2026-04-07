@@ -8258,7 +8258,7 @@ export default function App() {
   const [linkedinScrapeStep, setLinkedinScrapeStep] = useState('');
   const [linkedinScrapeCount, setLinkedinScrapeCount] = useState(50);
   const [linkedinExcludeBig4, setLinkedinExcludeBig4] = useState(true);
-  const [linkedinActiveOnly, setLinkedinActiveOnly] = useState(true);
+  const [linkedinActiveOnly, setLinkedinActiveOnly] = useState(false);
   const [linkedinTitleKeywords, setLinkedinTitleKeywords] = useState<string[]>([
     'Owner', 'Founder', 'Partner', 'Managing Partner', 'President', 'CEO', 'Principal',
   ]);
@@ -9077,26 +9077,33 @@ export default function App() {
     setLinkedinScrapeStep('Starting LinkedIn search...');
 
     try {
-      // Build actor input for harvestapi/linkedin-profile-search
+      // Build actor input for harvestapi/linkedin-profile-search.
       // Schema: https://apify.com/harvestapi/linkedin-profile-search/input-schema
-      // Industry ID 47 = Accounting; Seniority ID 320 = "Owner / Partner"
-      // Company headcount: A=Self-Employed, B=1-10, C=11-50, D=51-200 (small/mid firms only)
+      //
+      // We INTENTIONALLY keep the filter set minimal here. Stacking server-side
+      // filters (seniorityLevelIds, industryIds, companyHeadcount) on top of
+      // `currentJobTitles` decimates results — most LinkedIn profiles don't fill
+      // out seniority/industry/headcount fields, so they get excluded even when
+      // they're a perfect match. We rely on:
+      //   1. `searchQuery` + `currentJobTitles` for relevance
+      //   2. Big-4 client-side filter for exclusion
+      //   3. User can layer extra filters via toggles below
       const actorInput: Record<string, any> = {
         profileScraperMode: 'Full',
         searchQuery: 'CPA firm owner founder partner accounting tax practice',
         currentJobTitles: linkedinTitleKeywords,
         locations: ['United States'],
-        industryIds: ['47'],
-        seniorityLevelIds: ['320'],
-        companyHeadcount: ['A', 'B', 'C', 'D'],
         maxItems: linkedinScrapeCount,
       };
 
       // "Active" filter — harvestapi exposes `recentlyChangedJobs` as the only
       // server-side activity signal (recent profile update = engaged user).
+      // Off by default because it's lossy.
       if (linkedinActiveOnly) {
         actorInput.recentlyChangedJobs = true;
       }
+
+      console.log('[LinkedIn Scrape] Sending actor input:', actorInput);
 
       // 1. Trigger Apify run
       const startRes = await fetch('/api/linkedin-scrape', {
@@ -9120,6 +9127,11 @@ export default function App() {
       if (resultsData.error) throw new Error(resultsData.error);
 
       const items: any[] = resultsData.items || [];
+      console.log(`[LinkedIn Scrape] Raw items from Apify: ${items.length}`);
+      if (items.length > 0) {
+        console.log('[LinkedIn Scrape] Sample item shape:', items[0]);
+      }
+      const rawCount = items.length;
 
       // 4. Map harvestapi profile output to our LinkedInLead shape.
       // Output fields: firstName, lastName, headline, linkedinUrl, photo,
@@ -9162,21 +9174,33 @@ export default function App() {
           rawData: item,
         };
       }).filter(p => p.profileUrl); // skip rows with no profile URL
+      const afterUrlFilter = mapped.length;
+      console.log(`[LinkedIn Scrape] After profile-URL filter: ${afterUrlFilter} (dropped ${rawCount - afterUrlFilter})`);
 
       // 5. Big-4 safety filter (defense in depth — actor exclude list isn't always honored)
+      let big4Removed = 0;
       if (linkedinExcludeBig4) {
         const before = mapped.length;
         mapped = mapped.filter(p => !isBig4Company(p.company));
-        if (mapped.length < before) {
-          console.log(`Filtered out ${before - mapped.length} Big 4 employees`);
+        big4Removed = before - mapped.length;
+        if (big4Removed > 0) {
+          console.log(`[LinkedIn Scrape] Filtered out ${big4Removed} Big-4 employees`);
         }
       }
 
       // Active filter is now applied server-side via `recentlyChangedJobs` in actorInput.
       // (harvestapi doesn't return per-profile lastActivity, so we can't filter client-side.)
 
+      console.log(`[LinkedIn Scrape] Final count to insert: ${mapped.length}`);
+
       if (mapped.length === 0) {
-        addNotification('warning', 'No LinkedIn Profiles Found', 'Try widening your filters or increasing the count.');
+        addNotification(
+          'warning',
+          'No LinkedIn Profiles Found',
+          rawCount === 0
+            ? 'Apify returned 0 results. Try fewer/different title keywords or turn off "Recently active".'
+            : `Apify returned ${rawCount} profiles but all were filtered out (${big4Removed} were Big-4). Try disabling "Exclude Big 4" or relaxing filters.`
+        );
         return;
       }
 
@@ -9232,10 +9256,11 @@ export default function App() {
           );
         });
 
+        const big4Note = big4Removed > 0 ? ` (${big4Removed} Big-4 excluded)` : '';
         addNotification(
           'success',
           'LinkedIn Scrape Complete',
-          `Added ${newLeads.length} CPA firm owners to your LinkedIn list.`
+          `Added ${newLeads.length} of ${rawCount} profiles returned by LinkedIn${big4Note}.`
         );
       }
     } catch (error: any) {
