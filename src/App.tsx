@@ -45,6 +45,8 @@ import {
   Camera,
   Check,
   Activity,
+  Star,
+  MapPin,
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { Auth } from './components/Auth';
@@ -98,6 +100,27 @@ interface Lead {
   activeCampaignId?: string;
   activeCampaignName?: string;
   createdAt?: string; // When lead was added to database
+}
+
+// Separate type for LinkedIn-only leads (CPA firm owners scraped for direct LinkedIn outreach).
+// NOT linked to email campaigns or the Apollo `leads` table.
+interface LinkedInLead {
+  id: string;
+  fullName: string;
+  headline: string;
+  profileUrl: string;
+  company: string;
+  title: string;
+  location: string;
+  profileImageUrl?: string;
+  followers?: number;
+  connections?: number;
+  lastActivityAt?: string;
+  isFavorite: boolean;
+  contactStatus: 'new' | 'messaged' | 'replied' | 'passed';
+  notes?: string;
+  tags?: string[];
+  scrapedAt: string;
 }
 
 interface Campaign {
@@ -1432,6 +1455,697 @@ const Navbar = ({
   );
 };
 
+// ================================================================
+// LinkedInView — dedicated LinkedIn-only scraping & outreach tab
+// ================================================================
+const LinkedInView = ({
+  linkedinLeads,
+  linkedinScraping,
+  linkedinScrapeStep,
+  linkedinScrapeCount,
+  setLinkedinScrapeCount,
+  linkedinExcludeBig4,
+  setLinkedinExcludeBig4,
+  linkedinActiveOnly,
+  setLinkedinActiveOnly,
+  linkedinTitleKeywords,
+  setLinkedinTitleKeywords,
+  linkedinFilter,
+  setLinkedinFilter,
+  linkedinSearch,
+  setLinkedinSearch,
+  linkedinSort,
+  setLinkedinSort,
+  selectedLinkedinLead,
+  setSelectedLinkedinLead,
+  scrapeLinkedInProfiles,
+  toggleLinkedinFavorite,
+  updateLinkedinStatus,
+  updateLinkedinNotes,
+  deleteLinkedinLead,
+  exportLinkedinLeadsCSV,
+  isBig4Company,
+}: {
+  linkedinLeads: LinkedInLead[];
+  linkedinScraping: boolean;
+  linkedinScrapeStep: string;
+  linkedinScrapeCount: number;
+  setLinkedinScrapeCount: (n: number) => void;
+  linkedinExcludeBig4: boolean;
+  setLinkedinExcludeBig4: (v: boolean) => void;
+  linkedinActiveOnly: boolean;
+  setLinkedinActiveOnly: (v: boolean) => void;
+  linkedinTitleKeywords: string[];
+  setLinkedinTitleKeywords: React.Dispatch<React.SetStateAction<string[]>>;
+  linkedinFilter: 'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed';
+  setLinkedinFilter: (f: 'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed') => void;
+  linkedinSearch: string;
+  setLinkedinSearch: (s: string) => void;
+  linkedinSort: 'newest' | 'followers' | 'name';
+  setLinkedinSort: (s: 'newest' | 'followers' | 'name') => void;
+  selectedLinkedinLead: LinkedInLead | null;
+  setSelectedLinkedinLead: (l: LinkedInLead | null) => void;
+  scrapeLinkedInProfiles: () => Promise<void>;
+  toggleLinkedinFavorite: (id: string) => Promise<void>;
+  updateLinkedinStatus: (id: string, status: LinkedInLead['contactStatus']) => Promise<void>;
+  updateLinkedinNotes: (id: string, notes: string) => Promise<void>;
+  deleteLinkedinLead: (id: string) => Promise<void>;
+  exportLinkedinLeadsCSV: () => void;
+  isBig4Company: (company: string) => boolean;
+}) => {
+  const [newKeyword, setNewKeyword] = useState('');
+  const [editingNotes, setEditingNotes] = useState('');
+
+  // Sync editingNotes when modal opens with a different lead
+  useEffect(() => {
+    setEditingNotes(selectedLinkedinLead?.notes || '');
+  }, [selectedLinkedinLead?.id]);
+
+  const addKeyword = () => {
+    const k = newKeyword.trim();
+    if (k && !linkedinTitleKeywords.includes(k)) {
+      setLinkedinTitleKeywords(prev => [...prev, k]);
+    }
+    setNewKeyword('');
+  };
+
+  const removeKeyword = (k: string) => {
+    setLinkedinTitleKeywords(prev => prev.filter(x => x !== k));
+  };
+
+  // Apply filter + search + sort
+  const visibleLeads = linkedinLeads
+    .filter(l => {
+      if (linkedinFilter === 'favorites') return l.isFavorite;
+      if (linkedinFilter !== 'all') return l.contactStatus === linkedinFilter;
+      return true;
+    })
+    .filter(l => {
+      if (!linkedinSearch.trim()) return true;
+      const q = linkedinSearch.toLowerCase();
+      return (
+        l.fullName.toLowerCase().includes(q) ||
+        l.company.toLowerCase().includes(q) ||
+        l.title.toLowerCase().includes(q) ||
+        l.headline.toLowerCase().includes(q) ||
+        l.location.toLowerCase().includes(q)
+      );
+    })
+    .sort((a, b) => {
+      if (linkedinSort === 'name') return a.fullName.localeCompare(b.fullName);
+      if (linkedinSort === 'followers') return (b.followers || 0) - (a.followers || 0);
+      // newest (default)
+      return new Date(b.scrapedAt).getTime() - new Date(a.scrapedAt).getTime();
+    });
+
+  const statusColors: Record<LinkedInLead['contactStatus'], { bg: string; color: string; label: string }> = {
+    new:       { bg: 'rgba(59, 130, 246, 0.12)',  color: '#3B82F6', label: 'New' },
+    messaged:  { bg: 'rgba(245, 158, 11, 0.12)',  color: '#F59E0B', label: 'Messaged' },
+    replied:   { bg: 'rgba(16, 185, 129, 0.12)',  color: '#10B981', label: 'Replied' },
+    passed:    { bg: 'rgba(107, 114, 128, 0.12)', color: '#6B7280', label: 'Passed' },
+  };
+
+  const cycleStatus = (current: LinkedInLead['contactStatus']): LinkedInLead['contactStatus'] => {
+    const order: LinkedInLead['contactStatus'][] = ['new', 'messaged', 'replied', 'passed'];
+    return order[(order.indexOf(current) + 1) % order.length];
+  };
+
+  const formatActivity = (iso?: string) => {
+    if (!iso) return null;
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return null;
+    const days = Math.floor((Date.now() - t) / (1000 * 60 * 60 * 24));
+    if (days < 1) return 'Today';
+    if (days < 7) return `${days}d ago`;
+    if (days < 30) return `${Math.floor(days / 7)}w ago`;
+    return `${Math.floor(days / 30)}mo ago`;
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight font-display mb-2 flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
+            <Linkedin className="w-8 h-8" style={{ color: '#0A66C2' }} />
+            LinkedIn Outreach
+          </h2>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Scrape active CPA firm owners for direct LinkedIn / Sales Navigator outreach.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportLinkedinLeadsCSV}
+            disabled={linkedinLeads.length === 0}
+            className="px-4 py-2 rounded-full font-bold flex items-center gap-2 text-sm transition-all disabled:opacity-50"
+            style={{
+              background: 'var(--bg-elevated)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+            }}
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
+          </button>
+        </div>
+      </header>
+
+      {/* Scraper Form */}
+      <div className="glass-card p-6 space-y-5">
+        <div className="flex items-center gap-2 mb-2">
+          <Search className="w-5 h-5" style={{ color: '#0A66C2' }} />
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+            Find Active CPA Owners
+          </h3>
+        </div>
+
+        {/* Number to scrape */}
+        <div>
+          <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
+            Number of profiles to scrape
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={200}
+            value={linkedinScrapeCount}
+            onChange={e => setLinkedinScrapeCount(Math.max(1, Math.min(200, parseInt(e.target.value) || 50)))}
+            className="w-32 px-4 py-2 rounded-lg text-sm font-medium"
+            style={{
+              background: 'var(--bg-elevated)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+            }}
+          />
+          <span className="ml-3 text-xs" style={{ color: 'var(--text-muted)' }}>(max 200 per run)</span>
+        </div>
+
+        {/* Title keywords */}
+        <div>
+          <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
+            Title keywords (only profiles with these titles)
+          </label>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {linkedinTitleKeywords.map(k => (
+              <span
+                key={k}
+                className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5"
+                style={{
+                  background: 'rgba(10, 102, 194, 0.12)',
+                  color: '#0A66C2',
+                  border: '1px solid rgba(10, 102, 194, 0.3)',
+                }}
+              >
+                {k}
+                <button onClick={() => removeKeyword(k)} className="hover:opacity-70">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newKeyword}
+              onChange={e => setNewKeyword(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
+              placeholder="Add keyword (e.g. Owner, Founder)..."
+              className="flex-1 px-3 py-2 rounded-lg text-sm"
+              style={{
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+              }}
+            />
+            <button
+              onClick={addKeyword}
+              className="px-4 py-2 rounded-lg text-sm font-semibold"
+              style={{
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+              }}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Toggles */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={() => setLinkedinExcludeBig4(!linkedinExcludeBig4)}
+            className="flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm transition-all"
+            style={{
+              background: linkedinExcludeBig4 ? 'rgba(239, 68, 68, 0.08)' : 'var(--bg-elevated)',
+              border: `1px solid ${linkedinExcludeBig4 ? 'rgba(239, 68, 68, 0.3)' : 'var(--border-color)'}`,
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4" style={{ color: linkedinExcludeBig4 ? '#EF4444' : 'var(--text-muted)' }} />
+              <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>Exclude Big 4</span>
+            </div>
+            <div
+              className="w-10 h-5 rounded-full relative transition-all"
+              style={{ background: linkedinExcludeBig4 ? '#EF4444' : 'var(--border-color)' }}
+            >
+              <div
+                className="w-4 h-4 rounded-full bg-white absolute top-0.5 transition-all"
+                style={{ left: linkedinExcludeBig4 ? '20px' : '2px' }}
+              />
+            </div>
+          </button>
+
+          <button
+            onClick={() => setLinkedinActiveOnly(!linkedinActiveOnly)}
+            title="Only profiles that recently updated their position — best signal of an actively engaged LinkedIn user."
+            className="flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm transition-all"
+            style={{
+              background: linkedinActiveOnly ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-elevated)',
+              border: `1px solid ${linkedinActiveOnly ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-color)'}`,
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4" style={{ color: linkedinActiveOnly ? '#10B981' : 'var(--text-muted)' }} />
+              <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>Recently active</span>
+            </div>
+            <div
+              className="w-10 h-5 rounded-full relative transition-all"
+              style={{ background: linkedinActiveOnly ? '#10B981' : 'var(--border-color)' }}
+            >
+              <div
+                className="w-4 h-4 rounded-full bg-white absolute top-0.5 transition-all"
+                style={{ left: linkedinActiveOnly ? '20px' : '2px' }}
+              />
+            </div>
+          </button>
+        </div>
+
+        {/* Scrape button */}
+        <button
+          onClick={scrapeLinkedInProfiles}
+          disabled={linkedinScraping || linkedinTitleKeywords.length === 0}
+          className="w-full nexli-btn-gradient px-6 py-3 rounded-full font-bold shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {linkedinScraping ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              {linkedinScrapeStep || 'Scraping LinkedIn...'}
+            </>
+          ) : (
+            <>
+              <Linkedin className="w-5 h-5" />
+              Find Active CPA Owners on LinkedIn
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Results section */}
+      <div className="glass-card p-6">
+        {/* Filter / search bar */}
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4 mb-6">
+          <div className="flex items-center gap-2 flex-wrap">
+            {(['all', 'favorites', 'new', 'messaged', 'replied', 'passed'] as const).map(f => {
+              const isActive = linkedinFilter === f;
+              const labels: Record<typeof f, string> = {
+                all: 'All',
+                favorites: 'Favorites',
+                new: 'New',
+                messaged: 'Messaged',
+                replied: 'Replied',
+                passed: 'Passed',
+              };
+              return (
+                <button
+                  key={f}
+                  onClick={() => setLinkedinFilter(f)}
+                  className="px-3 py-1.5 rounded-full text-xs font-bold transition-all"
+                  style={{
+                    background: isActive ? 'var(--sidebar-active-bg)' : 'var(--bg-elevated)',
+                    color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                    border: `1px solid ${isActive ? 'var(--border-color)' : 'transparent'}`,
+                  }}
+                >
+                  {f === 'favorites' && <Star className="w-3 h-3 inline -mt-0.5 mr-1" />}
+                  {labels[f]}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex-1 flex items-center gap-2">
+            <input
+              type="text"
+              value={linkedinSearch}
+              onChange={e => setLinkedinSearch(e.target.value)}
+              placeholder="Search name, company, headline..."
+              className="flex-1 px-4 py-2 rounded-lg text-sm"
+              style={{
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+              }}
+            />
+            <select
+              value={linkedinSort}
+              onChange={e => setLinkedinSort(e.target.value as any)}
+              className="px-3 py-2 rounded-lg text-sm font-semibold"
+              style={{
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+              }}
+            >
+              <option value="newest">Newest</option>
+              <option value="followers">Most Followers</option>
+              <option value="name">Name (A–Z)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Count */}
+        <div className="mb-4 text-sm" style={{ color: 'var(--text-muted)' }}>
+          Showing <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{visibleLeads.length}</span> of {linkedinLeads.length} profiles
+        </div>
+
+        {/* Card grid */}
+        {visibleLeads.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
+            <div className="w-20 h-20 rounded-2xl flex items-center justify-center" style={{ background: 'var(--bg-elevated)' }}>
+              <Linkedin className="w-10 h-10" style={{ color: 'var(--text-muted)' }} />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
+                {linkedinLeads.length === 0 ? 'No LinkedIn leads yet' : 'No matches'}
+              </h3>
+              <p className="max-w-xs text-sm" style={{ color: 'var(--text-secondary)' }}>
+                {linkedinLeads.length === 0
+                  ? 'Use the scraper above to find active CPA firm owners on LinkedIn.'
+                  : 'Try adjusting your filter or search query.'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {visibleLeads.map(lead => {
+              const status = statusColors[lead.contactStatus];
+              const isBig4 = isBig4Company(lead.company);
+              const activity = formatActivity(lead.lastActivityAt);
+
+              return (
+                <div
+                  key={lead.id}
+                  className="rounded-xl p-5 transition-all hover:scale-[1.01] cursor-pointer relative"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                  onClick={() => setSelectedLinkedinLead(lead)}
+                >
+                  {/* Favorite star */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleLinkedinFavorite(lead.id); }}
+                    className="absolute top-3 right-3 p-1.5 rounded-lg transition-all"
+                    title={lead.isFavorite ? 'Unfavorite' : 'Favorite'}
+                  >
+                    <Star
+                      className="w-5 h-5"
+                      style={{
+                        color: lead.isFavorite ? '#F59E0B' : 'var(--text-muted)',
+                        fill: lead.isFavorite ? '#F59E0B' : 'none',
+                      }}
+                    />
+                  </button>
+
+                  {/* Avatar + name */}
+                  <div className="flex items-start gap-3 mb-3 pr-8">
+                    {lead.profileImageUrl ? (
+                      <img
+                        src={lead.profileImageUrl}
+                        alt={lead.fullName}
+                        className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div
+                        className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
+                        style={{ background: 'linear-gradient(135deg, #0A66C2, #2563EB)' }}
+                      >
+                        {lead.fullName.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-bold truncate" style={{ color: 'var(--text-primary)' }}>
+                        {lead.fullName}
+                      </h4>
+                      <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                        {lead.title}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Company */}
+                  {lead.company && (
+                    <div className="mb-2 flex items-center gap-1.5">
+                      <span className="text-sm font-semibold truncate" style={{ color: 'var(--text-secondary)' }}>
+                        {lead.company}
+                      </span>
+                      {isBig4 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                          style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#EF4444' }}
+                          title="Big 4 firm — possibly an employee, not an owner"
+                        >
+                          BIG 4
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Location + activity */}
+                  <div className="flex items-center gap-3 text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                    {lead.location && (
+                      <span className="flex items-center gap-1 truncate">
+                        <MapPin className="w-3 h-3 flex-shrink-0" />
+                        {lead.location}
+                      </span>
+                    )}
+                    {activity && (
+                      <span className="flex items-center gap-1 flex-shrink-0">
+                        <Activity className="w-3 h-3" />
+                        {activity}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Status pill */}
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <span
+                      className="px-2 py-0.5 rounded-full text-[11px] font-bold"
+                      style={{ background: status.bg, color: status.color }}
+                    >
+                      {status.label}
+                    </span>
+                    {lead.followers ? (
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {lead.followers.toLocaleString()} followers
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                    <a
+                      href={lead.profileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                      style={{ background: '#0A66C2', color: 'white' }}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Open
+                    </a>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateLinkedinStatus(lead.id, cycleStatus(lead.contactStatus));
+                      }}
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all"
+                      style={{
+                        background: 'var(--bg-surface)',
+                        color: 'var(--text-primary)',
+                        border: '1px solid var(--border-color)',
+                      }}
+                    >
+                      Mark Next
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Detail Modal */}
+      {selectedLinkedinLead && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+          onClick={() => setSelectedLinkedinLead(null)}
+        >
+          <div
+            className="glass-card p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                {selectedLinkedinLead.profileImageUrl ? (
+                  <img src={selectedLinkedinLead.profileImageUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
+                ) : (
+                  <div
+                    className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-2xl"
+                    style={{ background: 'linear-gradient(135deg, #0A66C2, #2563EB)' }}
+                  >
+                    {selectedLinkedinLead.fullName.charAt(0)}
+                  </div>
+                )}
+                <div>
+                  <h3 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                    {selectedLinkedinLead.fullName}
+                  </h3>
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    {selectedLinkedinLead.title}
+                    {selectedLinkedinLead.company && ` · ${selectedLinkedinLead.company}`}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedLinkedinLead(null)} className="p-2 rounded-lg hover:opacity-70">
+                <X className="w-5 h-5" style={{ color: 'var(--text-muted)' }} />
+              </button>
+            </div>
+
+            {selectedLinkedinLead.headline && (
+              <div className="mb-4">
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  {selectedLinkedinLead.headline}
+                </p>
+              </div>
+            )}
+
+            {/* Stats grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              {selectedLinkedinLead.location && (
+                <div className="rounded-lg p-3" style={{ background: 'var(--bg-elevated)' }}>
+                  <div className="text-[10px] font-bold uppercase mb-1" style={{ color: 'var(--text-muted)' }}>Location</div>
+                  <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{selectedLinkedinLead.location}</div>
+                </div>
+              )}
+              {selectedLinkedinLead.followers && (
+                <div className="rounded-lg p-3" style={{ background: 'var(--bg-elevated)' }}>
+                  <div className="text-[10px] font-bold uppercase mb-1" style={{ color: 'var(--text-muted)' }}>Followers</div>
+                  <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{selectedLinkedinLead.followers.toLocaleString()}</div>
+                </div>
+              )}
+              {selectedLinkedinLead.connections && (
+                <div className="rounded-lg p-3" style={{ background: 'var(--bg-elevated)' }}>
+                  <div className="text-[10px] font-bold uppercase mb-1" style={{ color: 'var(--text-muted)' }}>Connections</div>
+                  <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{selectedLinkedinLead.connections.toLocaleString()}</div>
+                </div>
+              )}
+              {formatActivity(selectedLinkedinLead.lastActivityAt) && (
+                <div className="rounded-lg p-3" style={{ background: 'var(--bg-elevated)' }}>
+                  <div className="text-[10px] font-bold uppercase mb-1" style={{ color: 'var(--text-muted)' }}>Last Active</div>
+                  <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{formatActivity(selectedLinkedinLead.lastActivityAt)}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Status selector */}
+            <div className="mb-4">
+              <label className="block text-xs font-bold uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
+                Outreach Status
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {(['new', 'messaged', 'replied', 'passed'] as const).map(s => {
+                  const sc = statusColors[s];
+                  const isActive = selectedLinkedinLead.contactStatus === s;
+                  return (
+                    <button
+                      key={s}
+                      onClick={() => updateLinkedinStatus(selectedLinkedinLead.id, s)}
+                      className="px-3 py-1.5 rounded-full text-xs font-bold transition-all"
+                      style={{
+                        background: isActive ? sc.bg : 'var(--bg-elevated)',
+                        color: isActive ? sc.color : 'var(--text-muted)',
+                        border: `1px solid ${isActive ? sc.color : 'var(--border-color)'}`,
+                      }}
+                    >
+                      {sc.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="mb-4">
+              <label className="block text-xs font-bold uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
+                Notes
+              </label>
+              <textarea
+                value={editingNotes}
+                onChange={e => setEditingNotes(e.target.value)}
+                onBlur={() => {
+                  if (editingNotes !== (selectedLinkedinLead.notes || '')) {
+                    updateLinkedinNotes(selectedLinkedinLead.id, editingNotes);
+                  }
+                }}
+                placeholder="Add notes about this lead..."
+                rows={3}
+                className="w-full px-3 py-2 rounded-lg text-sm resize-none"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                }}
+              />
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                onClick={() => deleteLinkedinLead(selectedLinkedinLead.id)}
+                className="px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2"
+                style={{
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  color: '#EF4444',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </button>
+              <a
+                href={selectedLinkedinLead.profileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-2 rounded-lg text-sm font-bold flex items-center gap-2"
+                style={{ background: '#0A66C2', color: 'white' }}
+              >
+                <ExternalLink className="w-4 h-4" />
+                Open in LinkedIn
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Sidebar = ({
   activeTab,
   setActiveTab,
@@ -1466,6 +2180,7 @@ const Sidebar = ({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'scraper', label: 'Lead Scraper', icon: Search },
     { id: 'leads', label: 'My Leads', icon: Users },
+    { id: 'linkedin', label: 'LinkedIn', icon: Linkedin },
     { id: 'campaigns', label: 'Email Campaigns', icon: Mail },
     { id: 'tracking', label: 'Email Tracking', icon: Activity },
     { id: 'settings', label: 'Settings', icon: Settings },
@@ -7537,6 +8252,21 @@ export default function App() {
   });
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
 
+  // LinkedIn-only leads (separate from Apollo lead list, no email/campaign integration)
+  const [linkedinLeads, setLinkedinLeads] = useState<LinkedInLead[]>([]);
+  const [linkedinScraping, setLinkedinScraping] = useState(false);
+  const [linkedinScrapeStep, setLinkedinScrapeStep] = useState('');
+  const [linkedinScrapeCount, setLinkedinScrapeCount] = useState(50);
+  const [linkedinExcludeBig4, setLinkedinExcludeBig4] = useState(true);
+  const [linkedinActiveOnly, setLinkedinActiveOnly] = useState(true);
+  const [linkedinTitleKeywords, setLinkedinTitleKeywords] = useState<string[]>([
+    'Owner', 'Founder', 'Partner', 'Managing Partner', 'President', 'CEO', 'Principal',
+  ]);
+  const [linkedinFilter, setLinkedinFilter] = useState<'all' | 'favorites' | 'new' | 'messaged' | 'replied' | 'passed'>('all');
+  const [linkedinSearch, setLinkedinSearch] = useState('');
+  const [linkedinSort, setLinkedinSort] = useState<'newest' | 'followers' | 'name'>('newest');
+  const [selectedLinkedinLead, setSelectedLinkedinLead] = useState<LinkedInLead | null>(null);
+
   // Campaign state (persisted to Supabase)
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
@@ -8114,6 +8844,38 @@ export default function App() {
 
           setAllLeads(mappedLeads);
         }
+
+        // Fetch LinkedIn leads (separate table from Apollo leads)
+        const { data: liData, error: liError } = await supabase
+          .from('linkedin_leads')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('scraped_at', { ascending: false })
+          .range(0, 4999);
+
+        if (liError) {
+          // Table may not exist yet — log but don't fail the whole load
+          console.warn('LinkedIn leads not loaded:', liError.message);
+        } else if (liData) {
+          setLinkedinLeads(liData.map((row: any) => ({
+            id: row.id,
+            fullName: row.full_name,
+            headline: row.headline || '',
+            profileUrl: row.profile_url,
+            company: row.company || '',
+            title: row.title || '',
+            location: row.location || '',
+            profileImageUrl: row.profile_image_url || undefined,
+            followers: row.followers || undefined,
+            connections: row.connections || undefined,
+            lastActivityAt: row.last_activity_at || undefined,
+            isFavorite: row.is_favorite || false,
+            contactStatus: row.contact_status || 'new',
+            notes: row.notes || undefined,
+            tags: row.tags || [],
+            scrapedAt: row.scraped_at,
+          })));
+        }
       } catch (error: any) {
         console.error('Error loading user data:', error);
         addNotification('error', 'Load Failed', 'Could not load your data from database');
@@ -8260,6 +9022,295 @@ export default function App() {
 
   const clearAllNotifications = () => {
     setNotifications([]);
+  };
+
+  // ============================================================
+  // LinkedIn-only lead helpers
+  // ============================================================
+
+  const BIG4_FIRMS = [
+    'deloitte', 'pwc', 'pricewaterhousecoopers', 'pricewaterhouse coopers',
+    'ernst & young', 'ernst and young', 'ernst young', 'ey llp', 'ey ',
+    'kpmg',
+  ];
+
+  const isBig4Company = (company: string): boolean => {
+    if (!company) return false;
+    const c = company.toLowerCase();
+    return BIG4_FIRMS.some(firm => c.includes(firm));
+  };
+
+  const pollLinkedInRunStatus = async (runId: string): Promise<void> => {
+    const statusSteps = [
+      'Searching LinkedIn for CPA firm owners...',
+      'Filtering by activity and seniority...',
+      'Extracting profile data...',
+      'Compiling results...',
+    ];
+    let stepIdx = 0;
+    const maxPolls = 100;
+    let pollCount = 0;
+
+    while (pollCount < maxPolls) {
+      const res = await fetch(`/api/scrape/${runId}`);
+      const data = await res.json();
+      if (data.error) throw new Error(String(data.error));
+
+      setLinkedinScrapeStep(statusSteps[stepIdx % statusSteps.length]);
+      stepIdx++;
+      pollCount++;
+
+      if (data.status === 'SUCCEEDED') return;
+      if (data.status === 'FAILED' || data.status === 'ABORTED') {
+        throw new Error(`LinkedIn scrape ${String(data.status).toLowerCase()}.`);
+      }
+
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    throw new Error('LinkedIn scrape timed out.');
+  };
+
+  const scrapeLinkedInProfiles = async () => {
+    if (!user) return;
+    setLinkedinScraping(true);
+    setLinkedinScrapeStep('Starting LinkedIn search...');
+
+    try {
+      // Build actor input for harvestapi/linkedin-profile-search
+      // Schema: https://apify.com/harvestapi/linkedin-profile-search/input-schema
+      // Industry ID 47 = Accounting; Seniority ID 320 = "Owner / Partner"
+      // Company headcount: A=Self-Employed, B=1-10, C=11-50, D=51-200 (small/mid firms only)
+      const actorInput: Record<string, any> = {
+        profileScraperMode: 'Full',
+        searchQuery: 'CPA firm owner founder partner accounting tax practice',
+        currentJobTitles: linkedinTitleKeywords,
+        locations: ['United States'],
+        industryIds: ['47'],
+        seniorityLevelIds: ['320'],
+        companyHeadcount: ['A', 'B', 'C', 'D'],
+        maxItems: linkedinScrapeCount,
+      };
+
+      // "Active" filter — harvestapi exposes `recentlyChangedJobs` as the only
+      // server-side activity signal (recent profile update = engaged user).
+      if (linkedinActiveOnly) {
+        actorInput.recentlyChangedJobs = true;
+      }
+
+      // 1. Trigger Apify run
+      const startRes = await fetch('/api/linkedin-scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(actorInput),
+      });
+      const startData = await startRes.json();
+
+      if (startData.error) {
+        throw new Error(String(startData.error));
+      }
+
+      // 2. Poll until run completes
+      await pollLinkedInRunStatus(startData.runId);
+
+      // 3. Fetch results from generic /api/scrape/[runId]/results endpoint (works for any actor)
+      setLinkedinScrapeStep('Fetching results...');
+      const resultsRes = await fetch(`/api/scrape/${startData.runId}/results?limit=${linkedinScrapeCount}`);
+      const resultsData = await resultsRes.json();
+      if (resultsData.error) throw new Error(resultsData.error);
+
+      const items: any[] = resultsData.items || [];
+
+      // 4. Map harvestapi profile output to our LinkedInLead shape.
+      // Output fields: firstName, lastName, headline, linkedinUrl, photo,
+      // location.{linkedinText/parsed}, currentPosition[].{companyName, title},
+      // followerCount, connectionsCount, registeredAt, openToWork, etc.
+      let mapped = items.map((item: any) => {
+        const firstName = item.firstName || '';
+        const lastName = item.lastName || '';
+        const fullName = `${firstName} ${lastName}`.trim() || item.name || 'Unknown';
+        const profileUrl = item.linkedinUrl || item.profileUrl || item.url || '';
+
+        // currentPosition is typically an array; take the first one
+        const currentPos = Array.isArray(item.currentPosition) && item.currentPosition.length > 0
+          ? item.currentPosition[0]
+          : (item.currentPosition || {});
+        const title = currentPos.title || currentPos.position || item.headline || '';
+        const company = currentPos.companyName || currentPos.company || '';
+
+        // Location can be a string or an object
+        const locationRaw = item.location;
+        const location = typeof locationRaw === 'string'
+          ? locationRaw
+          : (locationRaw?.linkedinText || locationRaw?.parsed?.text || locationRaw?.country || '');
+
+        const headline = item.headline || item.about || title;
+
+        return {
+          fullName,
+          headline,
+          profileUrl,
+          company,
+          title,
+          location,
+          profileImageUrl: item.photo || item.profilePicture || item.profileImageUrl || null,
+          followers: item.followerCount || item.followers || null,
+          connections: item.connectionsCount || item.connections || null,
+          // harvestapi doesn't return a single "last activity" field — leave null
+          // (the active-recently filter will then keep all profiles by default)
+          lastActivityAt: null,
+          rawData: item,
+        };
+      }).filter(p => p.profileUrl); // skip rows with no profile URL
+
+      // 5. Big-4 safety filter (defense in depth — actor exclude list isn't always honored)
+      if (linkedinExcludeBig4) {
+        const before = mapped.length;
+        mapped = mapped.filter(p => !isBig4Company(p.company));
+        if (mapped.length < before) {
+          console.log(`Filtered out ${before - mapped.length} Big 4 employees`);
+        }
+      }
+
+      // Active filter is now applied server-side via `recentlyChangedJobs` in actorInput.
+      // (harvestapi doesn't return per-profile lastActivity, so we can't filter client-side.)
+
+      if (mapped.length === 0) {
+        addNotification('warning', 'No LinkedIn Profiles Found', 'Try widening your filters or increasing the count.');
+        return;
+      }
+
+      // 7. Insert into linkedin_leads. UNIQUE(user_id, profile_url) prevents dupes — use upsert.
+      const insertRows = mapped.map(p => ({
+        user_id: user.id,
+        full_name: p.fullName,
+        headline: p.headline || null,
+        profile_url: p.profileUrl,
+        company: p.company || null,
+        title: p.title || null,
+        location: p.location || null,
+        profile_image_url: p.profileImageUrl || null,
+        followers: p.followers || null,
+        connections: p.connections || null,
+        last_activity_at: p.lastActivityAt || null,
+        raw_data: p.rawData,
+      }));
+
+      const { data: inserted, error: insertError } = await supabase
+        .from('linkedin_leads')
+        .upsert(insertRows, { onConflict: 'user_id,profile_url', ignoreDuplicates: false })
+        .select('*');
+
+      if (insertError) throw insertError;
+
+      // 8. Refresh local state — merge new + existing, dedupe by id
+      if (inserted) {
+        const newLeads: LinkedInLead[] = inserted.map((row: any) => ({
+          id: row.id,
+          fullName: row.full_name,
+          headline: row.headline || '',
+          profileUrl: row.profile_url,
+          company: row.company || '',
+          title: row.title || '',
+          location: row.location || '',
+          profileImageUrl: row.profile_image_url || undefined,
+          followers: row.followers || undefined,
+          connections: row.connections || undefined,
+          lastActivityAt: row.last_activity_at || undefined,
+          isFavorite: row.is_favorite || false,
+          contactStatus: row.contact_status || 'new',
+          notes: row.notes || undefined,
+          tags: row.tags || [],
+          scrapedAt: row.scraped_at,
+        }));
+
+        setLinkedinLeads(prev => {
+          const byId = new Map(prev.map(l => [l.id, l]));
+          for (const nl of newLeads) byId.set(nl.id, nl);
+          return Array.from(byId.values()).sort((a, b) =>
+            new Date(b.scrapedAt).getTime() - new Date(a.scrapedAt).getTime()
+          );
+        });
+
+        addNotification(
+          'success',
+          'LinkedIn Scrape Complete',
+          `Added ${newLeads.length} CPA firm owners to your LinkedIn list.`
+        );
+      }
+    } catch (error: any) {
+      console.error('LinkedIn scrape failed:', error);
+      addNotification('error', 'LinkedIn Scrape Failed', error.message || 'Unknown error');
+    } finally {
+      setLinkedinScraping(false);
+      setLinkedinScrapeStep('');
+    }
+  };
+
+  const toggleLinkedinFavorite = async (id: string) => {
+    const lead = linkedinLeads.find(l => l.id === id);
+    if (!lead) return;
+    const newValue = !lead.isFavorite;
+
+    setLinkedinLeads(prev => prev.map(l => l.id === id ? { ...l, isFavorite: newValue } : l));
+
+    const { error } = await supabase
+      .from('linkedin_leads')
+      .update({ is_favorite: newValue })
+      .eq('id', id);
+
+    if (error) {
+      // revert on failure
+      setLinkedinLeads(prev => prev.map(l => l.id === id ? { ...l, isFavorite: !newValue } : l));
+      addNotification('error', 'Update Failed', error.message);
+    }
+  };
+
+  const updateLinkedinStatus = async (id: string, status: LinkedInLead['contactStatus']) => {
+    setLinkedinLeads(prev => prev.map(l => l.id === id ? { ...l, contactStatus: status } : l));
+    const { error } = await supabase
+      .from('linkedin_leads')
+      .update({ contact_status: status })
+      .eq('id', id);
+    if (error) addNotification('error', 'Update Failed', error.message);
+  };
+
+  const updateLinkedinNotes = async (id: string, notes: string) => {
+    setLinkedinLeads(prev => prev.map(l => l.id === id ? { ...l, notes } : l));
+    const { error } = await supabase
+      .from('linkedin_leads')
+      .update({ notes })
+      .eq('id', id);
+    if (error) addNotification('error', 'Save Failed', error.message);
+  };
+
+  const deleteLinkedinLead = async (id: string) => {
+    if (!confirm('Delete this LinkedIn lead? This cannot be undone.')) return;
+    setLinkedinLeads(prev => prev.filter(l => l.id !== id));
+    setSelectedLinkedinLead(null);
+    const { error } = await supabase
+      .from('linkedin_leads')
+      .delete()
+      .eq('id', id);
+    if (error) addNotification('error', 'Delete Failed', error.message);
+  };
+
+  const exportLinkedinLeadsCSV = () => {
+    if (linkedinLeads.length === 0) return;
+    const headers = ['Name', 'Title', 'Company', 'Location', 'Headline', 'Followers', 'Profile URL', 'Status', 'Favorite', 'Notes'];
+    const rows = linkedinLeads.map(l => [
+      l.fullName, l.title, l.company, l.location, l.headline,
+      l.followers ?? '', l.profileUrl, l.contactStatus, l.isFavorite ? 'yes' : 'no',
+      l.notes || '',
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `linkedin-leads-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleLeadsFound = async (newLeads: Lead[]) => {
@@ -10102,6 +11153,36 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              )}
+              {activeTab === 'linkedin' && (
+                <LinkedInView
+                  linkedinLeads={linkedinLeads}
+                  linkedinScraping={linkedinScraping}
+                  linkedinScrapeStep={linkedinScrapeStep}
+                  linkedinScrapeCount={linkedinScrapeCount}
+                  setLinkedinScrapeCount={setLinkedinScrapeCount}
+                  linkedinExcludeBig4={linkedinExcludeBig4}
+                  setLinkedinExcludeBig4={setLinkedinExcludeBig4}
+                  linkedinActiveOnly={linkedinActiveOnly}
+                  setLinkedinActiveOnly={setLinkedinActiveOnly}
+                  linkedinTitleKeywords={linkedinTitleKeywords}
+                  setLinkedinTitleKeywords={setLinkedinTitleKeywords}
+                  linkedinFilter={linkedinFilter}
+                  setLinkedinFilter={setLinkedinFilter}
+                  linkedinSearch={linkedinSearch}
+                  setLinkedinSearch={setLinkedinSearch}
+                  linkedinSort={linkedinSort}
+                  setLinkedinSort={setLinkedinSort}
+                  selectedLinkedinLead={selectedLinkedinLead}
+                  setSelectedLinkedinLead={setSelectedLinkedinLead}
+                  scrapeLinkedInProfiles={scrapeLinkedInProfiles}
+                  toggleLinkedinFavorite={toggleLinkedinFavorite}
+                  updateLinkedinStatus={updateLinkedinStatus}
+                  updateLinkedinNotes={updateLinkedinNotes}
+                  deleteLinkedinLead={deleteLinkedinLead}
+                  exportLinkedinLeadsCSV={exportLinkedinLeadsCSV}
+                  isBig4Company={isBig4Company}
+                />
               )}
               {activeTab === 'campaigns' && (
                 <CampaignsView
